@@ -1,0 +1,59 @@
+# This config file is assumed to be parsed pyhocon.
+
+# Training hyperparameters.
+num_train_data=10000        # The maximum size of training data. if 0, all of the training data will be used.
+max_to_keep = 1         # The number of checkpoints kept.
+max_epoch = 30          # The number of epochs in training.
+learning_rate = 0.001   # Learning rate.
+max_gradient_norm = 5.0 # 
+decay_rate = 0.999      #
+decay_frequency = 100   #
+dropout_rate=0.2        # The dropout ratio in training. 
+train_embedding=true    # Whether to retrain the pretrained embeddings or not.
+teacher_forcing=false   # Whether to force the model to input the gold target labels in training regardless of the model's choice .
+batch_size=10           # Batch size.
+
+# Structure.
+num_layers=1                       # The number of layers in MultiRNNCell.
+rnn_size=50                        # The dimension of RNN, and other layers.
+rnn_type=bidirectional_dynamic_rnn # The name of rnn function in tensorflow.
+cell_type=GRUCell                  # The name of RNNCell class in tensorflow.
+model_type=PointerNetwork          # The name of class defined in 'src/core/models/pointernet.py'.
+dataset_type=UbuntuDialogueDataset
+
+dataset_info { # The train/valid/test dataset.
+  train = {
+    path = dataset/ubuntu-dialogue/train.csv
+    max_lines = 100000
+  }
+  valid = {
+    path = dataset/ubuntu-dialogue/valid.csv
+    max_lines = 0
+  }
+  test = {
+    path = dataset/ubuntu-dialogue/test.csv
+    max_lines = 0
+  }
+}
+
+# Text processing.
+utterance_max_len = 20
+context_max_len = 4
+vocab_size = 30000          # The maximum size of the vocabulary. if 0, use all.
+lowercase=true          # Whether to convert words into lowercase or not.
+cbase = true
+wbase = true
+w_vocab_size = 0
+c_vocab_size = 0
+w_embedding_size = 300
+c_embedding_size = 8
+char_vocab_path = "dataset/embeddings/char_vocab.english.txt"
+
+#Pretrained embeddings.
+embedding_path=dataset/embeddings   # The directory where to put your pretrained embeddings file.
+embeddings=[${glove_300d_filtered}] 
+glove_300d_filtered {
+  path = ${embedding_path}/glove.840B.300d.txt.filtered
+  size = 300
+  format = txt
+}
