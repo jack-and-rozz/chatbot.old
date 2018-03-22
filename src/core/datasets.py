@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from collections import OrderedDict, Counter
 from nltk.tokenize import sent_tokenize, word_tokenize
-from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _NUM, FeatureVocab, WordVocabulary
+from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _NUM,  WordVocabulary, CharVocabulary
 from utils import evaluation, tf_utils, common
 import datasets as self_module
 
@@ -41,10 +41,14 @@ _URL = '__URL__'
 _FILEPATH = '__FILEPATH__'
 
 class _UbuntuDialogueDataset(DatasetBase):
-  def __init__(self, info, vocab):
+  def __init__(self, info, w_vocab, c_vocab):
+
     self.path = info.path
     self.max_lines = info.max_lines if info.max_lines else None
-    self.vocab = vocab
+    self.w_vocab = w_vocab
+    self.c_vocab = c_vocab
+    self.wbase = True
+    self.cbase = True
 
   @classmethod
   def preprocess_dialogue(self_class, dialogue):
@@ -78,17 +82,34 @@ class _UbuntuDialogueDataset(DatasetBase):
     separate_tokens = ['*']
     for t in separate_tokens:
       uttr = uttr.replace(t, t + ' ')
-    return uttr.strip().split()
- 
-  def load_data(self, num_max_lines=None):
+    return uttr.strip()
+
+  @common.timewatch()
+  def load_data(self):
     sys.stderr.write('Loading dataset from %s ...\n' % (self.path))
     data = pd.read_csv(self.path, nrows=self.max_lines)
     if 'Label' in data:
       data = data[data['Label'] == 1]
     self.contexts, self.speaker_changes = list(zip(*[self.preprocess_dialogue(x) for x in data['Context']]))
-    self.responses = [self.preprocess_turn(x)[0] for x in data['Context']]
+    
+    if 'Utterance' in data:
+      self.responses = [self.preprocess_turn(x)[0] for x in data['Utterance']]
+    else:
+      self.responses = [self.preprocess_turn(x)[0] for x in data['Ground Truth Utterance']]
+    if not self.wbase and not self.cbase:
+      raise ValueError('Either \'wbase\' or \'cbase\' must be True.')
+    if self.wbase:
+      self.w_contexts = [[self.w_vocab.tokenizer(u) for u in context] 
+                         for context in self.contexts]
+      self.w_responses = [self.w_vocab.tokenizer(r) for r in self.responses]
+    if self.cbase:
+      self.c_contexts = [[self.c_vocab.tokenizer(u) for u in context] 
+                         for context in self.contexts]
+      self.c_responses = [self.c_vocab.tokenizer(r) for r in self.responses]
+    
 
-  def get_batch(self, batch_size,
+
+  def get_batch(self, batch_size, 
                 utterance_max_len=None, context_max_len=None, shuffle=False):
 
     self.load_data() # lazy loading.
@@ -147,19 +168,35 @@ class PackedDatasetBase(object):
 
 class UbuntuDialogueDataset(PackedDatasetBase):
   @staticmethod
-  def create_vocab_from_data(data_info, vocab_size, lowercase):
-    #data = pd.read_csv(data_info.path, nrows=data_info.max_lines)
-    data = pd.read_csv(data_info.path)
-    data = data[data['Label'] == 1]
-    contexts, _ = list(zip(*[_UbuntuDialogueDataset.preprocess_dialogue(x) for x in data['Context']]))
-    contexts = common.flatten(contexts, depth=2)
-    responses = [_UbuntuDialogueDataset.preprocess_turn(x) for x in data['Utterance']]
-    responses = common.flatten(responses, depth=2)
-    texts = contexts + responses
-    vocab_path = data_info.path + '.Wvocab' + str(vocab_size)
-    if lowercase:
-      vocab_path += '.lower'
-    
-    return WordVocabulary(vocab_path, texts, 
-                          vocab_size=vocab_size, lowercase=lowercase)
+  def create_vocab_from_data(config):
+    train_data_path = config.dataset_info.train.path
+    w_vocab_size = config.w_vocab_size
+    c_vocab_size = config.c_vocab_size
+    lowercase = config.lowercase
 
+    w_vocab_path = train_data_path + '.Wvocab' + str(w_vocab_size)
+    if lowercase:
+      w_vocab_path += '.lower'
+    c_vocab_path = train_data_path + '.Cvocab' + str(c_vocab_size)
+    if not (os.path.exists(w_vocab_path) and os.path.exists(c_vocab_path)):
+      #data = pd.read_csv(train_data_path, nrows=1000)
+      data = pd.read_csv(train_data_path)
+      data = data[data['Label'] == 1]
+      contexts, _ = list(zip(*[_UbuntuDialogueDataset.preprocess_dialogue(x) for x in data['Context']]))
+      contexts = common.flatten(contexts)
+      responses = [_UbuntuDialogueDataset.preprocess_turn(x) for x in data['Utterance']]
+      responses = common.flatten(responses)
+      texts = contexts + responses
+      texts = common.flatten([l.split() for l in texts])
+      if type(texts[0]) == str:
+        texts = [word.decode('utf-8') for word in texts] # List of unicode.
+
+    else:
+      texts = ['-']
+
+    w_vocab = WordVocabulary(w_vocab_path, texts, 
+                             vocab_size=w_vocab_size, lowercase=lowercase)
+    c_vocab = CharVocabulary(c_vocab_path, texts, 
+                             vocab_size=c_vocab_size, lowercase=False, 
+                             normalize_digits=False)
+    return w_vocab, c_vocab

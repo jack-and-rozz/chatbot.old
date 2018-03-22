@@ -93,6 +93,9 @@ def str2bool(v):
   return v.lower() in ("yes", "true", "t", "1")
 
 def flatten(l, depth=1):
+  # if depth is None:
+  #   l = [flatten(x, depth) for x in l] if type(l[0]) in [list, tuple] else l
+  # else:
   l = flatten(l, depth-1) if depth > 1 else l 
   return list(chain.from_iterable(l))
 

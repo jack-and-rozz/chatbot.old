@@ -28,6 +28,10 @@ class ModelBase(object):
       "epoch", trainable=False, shape=[], dtype=tf.int32,
       initializer=tf.constant_initializer(0, dtype=tf.int32)) 
 
+    self.high_score = tf.get_variable(
+      "high_score", trainable=False, shape=[], dtype=tf.float32,
+      initializer=tf.constant_initializer(0, dtype=tf.int32)) 
+
     self.learning_rate = tf.train.exponential_decay(
       config.learning_rate, self.global_step,
       config.decay_frequency, config.decay_rate, staircase=True)
@@ -46,6 +50,8 @@ class ModelBase(object):
 
   def add_epoch(self):
     self.sess.run(tf.assign(self.epoch, tf.add(self.epoch, tf.constant(1, dtype=tf.int32))))
+  def update_highscore(self, score):
+    self.sess.run(tf.assign(self.high_score, tf.constant(score, dtype=tf.float32)))
 
   def initialize_embeddings(self, name, emb_shape, initializer=None, 
                             trainable=True):

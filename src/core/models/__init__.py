@@ -1,2 +1,3 @@
 from base import *
-from pointernet import PointerNetwork
+from seq2seq import Seq2Seq
+#from pointernet import PointerNetwork

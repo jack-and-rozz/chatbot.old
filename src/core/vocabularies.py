@@ -51,8 +51,10 @@ class WordTokenizer(object):
     self.normalize_digits = normalize_digits
     self.do_separate_numbers = do_separate_numbers
     self.do_separate_symbols = do_separate_symbols
+    self.word_tokenize = lambda x : x.split() # Just split
+    #self.word_tokenize = word_tokenize # Use nltk.word_tokenize
 
-  def __call__(self, sent, normalize_digits=None, lowercase=None, flatten=None):
+  def __call__(self, sent, normalize_digits=None, lowercase=None):
     sent = sent.replace('\n', '')
     if self.do_separate_numbers:
       sent = separate_numbers(sent)
@@ -64,44 +66,44 @@ class WordTokenizer(object):
       sent = re.sub(_DIGIT_RE, "0", sent) 
     if lowercase:
       sent = sent.lower()
-    return word_tokenize(sent)
+    if type(sent) == str:
+      sent = sent.decode('utf-8')
+    return self.word_tokenize(sent)
 
 class VocabularyBase(object):
   def __init__(self):
     self.vocab = None
     self.rev_vocab = None
+    self.embeddings = None
     self.name = None
 
   @property
   def size(self):
     return len(self.vocab)
 
-  # def create_vocab(self, token_list, vocab_path):
-  #   # Create vocab from a list of words.
-  #   start_vocab = START_VOCAB
-  #   rev_vocab = OrderedSet(start_vocab + token_list) 
-  #   with open(vocab_path, 'w') as f:
-  #     f.write('\n'.join(list(rev_vocab) + '\n'))
-  #   return rev_vocab
+class CharTokenizer(object):
+  def __init__(self, lowercase=False, normalize_digits=False):
+    self.lowercase = lowercase
+    self.normalize_digits = normalize_digits
+    self.w_tokenizer = WordTokenizer(lowercase=lowercase, 
+                                     normalize_digits=normalize_digits)
 
-  # def init_vocab(self, token_list, vocab_path, skip_first=False):
-  #   rev_vocab = self.load_vocab(vocab_path, skip_first=skip_first)
-  #   if rev_vocab is None:
-  #     rev_vocab = self.create_vocab()
+  def word2chars(self, word):
+    word = word.strip()
+    if type(word) == str:
+      word = word.decode('utf-8')
+    word = [c for c in word]
+    return word
 
-  #   vocab = collections.OrderedDict()
-  #   for i,t in enumerate(rev_vocab):
-  #     vocab[t] = i
-  #   return vocab, rev_vocab
+  def __call__(self, sent, normalize_digits=None, lowercase=None):
+    words = self.w_tokenizer(sent, lowercase=lowercase, 
+                             normalize_digits=normalize_digits)
 
-
-  # def load_vocab(vocab_path, skip_first=False):
-  #   pass
-  #   #with open(vocab_path)
+    return [self.word2chars(w) for w in words]
 
 
 class WordVocabularyBase(VocabularyBase):
-  def id2token(self, _id):
+  def id2word(self, _id):
     if not type(_id) in [int, np.int32]:
       raise ValueError('ID must be an integer but %s' % str(type(_id)))
     elif _id < 0 or _id > len(self.rev_vocab):
@@ -111,16 +113,13 @@ class WordVocabularyBase(VocabularyBase):
     else:
       return self.rev_vocab[_id]
 
-  def idx2tokens(self, idxs, refer_tokens):
-    return [refer_tokens[i] for i in idxs if refer_tokens[i] and refer_tokens[i] not in UNDISPLAYED_TOKENS]
-
-  def ids2tokens(self, ids, link_span=None, join=False, remove_special=True):
+  def id2sent(self, ids, link_span=None, join=False, remove_special=True):
     '''
     ids: a list of word-ids.
     link_span : a tuple of the indices between the start and the end of a link.
     '''
-    def _ids2tokens(ids, link_span):
-      sent_tokens = [self.id2token(word_id) for word_id in ids]
+    def _id2sent(ids, link_span):
+      sent_tokens = [self.id2word(word_id) for word_id in ids]
       if link_span:
         for i in xrange(link_span[0], link_span[1]+1):
           sent_tokens[i] = common.colored(sent_tokens[i], 'link')
@@ -130,30 +129,27 @@ class WordVocabularyBase(VocabularyBase):
       if join:
         sent_tokens = " ".join(sent_tokens)
       return sent_tokens
-    return _ids2tokens(ids, link_span)
+    return _id2sent(ids, link_span)
 
-  def token2id(self, token):
-    # token: a string.
-    # res: an interger.
-    return self.vocab.get(token, UNK_ID)
+  def word2id(self, word):
+    # Args:
+    #  - token: a string.
+    # Res: an interger.
+    return self.vocab.get(word, UNK_ID)
 
-  def str2ids(self, sentence):
-    # sentence : a string.
-    # res :a list of integer.
-
-    tokens = self.tokenizer(sentence) 
-    return [self.token2id(word) for word in tokens]
-
-  def tokens2ids(self, tokens):
-    if type(tokens) == list:
-      res = [self.token2id(word) for word in tokens]
-    elif type(tokens) == tf.Tensor and self.lookup_table:
-      res = self.lookup_table.lookup(tokens)
+  def sent2id(self, sentence):
+    if type(sentence) == list:
+      res = [self.word2id(word) for word in sentence]
+    elif type(sentence) == str:
+      res = [self.word2id(word) for word in self.tokenizer(sentence)]
+    elif type(sentence) == tf.Tensor and self.lookup_table:
+      res = self.lookup_table.lookup(sentence)
     else:
       raise ValueError
     return res
 
 class WordVocabulary(WordVocabularyBase):
+  tokenizer_type = WordTokenizer
   @common.timewatch()
   def __init__(self, vocab_path, texts, 
                vocab_size=0, lowercase=False, normalize_digits=True):
@@ -161,10 +157,11 @@ class WordVocabulary(WordVocabularyBase):
     Args:
     - texts: List of tokens.
     """
-    self.tokenizer = WordTokenizer(lowercase=lowercase,
-                                   normalize_digits=normalize_digits)
-    self.vocab, self.rev_vocab, self.embeddings = self.init_vocab(
+    self.tokenizer = self.tokenizer_type(lowercase=lowercase,
+                                         normalize_digits=normalize_digits)
+    self.vocab, self.rev_vocab, _ = self.init_vocab(
       vocab_path, texts, vocab_size=vocab_size)
+    self.vocab_path = vocab_path
 
   def init_vocab(self, vocab_path, texts, vocab_size=0):
     if os.path.exists(vocab_path):
@@ -185,10 +182,17 @@ class WordVocabulary(WordVocabularyBase):
     return vocab, rev_vocab
     
   def create_vocab(self, vocab_path, texts, vocab_size=0):
+    '''
+    Args:
+     - vocab_path: The path to which the vocabulary will be restored.
+     - texts: List of words.
+    '''
     start_vocab = START_VOCAB 
     rev_vocab, freq = zip(*collections.Counter(texts).most_common())
-    rev_vocab = OrderedSet(start_vocab + [self.tokenizer(w, flatten=True)[0] 
-                                          for w in rev_vocab])
+    rev_vocab = common.flatten([self.tokenizer(w) for w in rev_vocab])
+    if type(rev_vocab[0]) == list:
+      rev_vocab = common.flatten(rev_vocab)
+    rev_vocab = OrderedSet(start_vocab + rev_vocab)
     if vocab_size:
       rev_vocab = OrderedSet([w for i, w in enumerate(rev_vocab) if i < vocab_size])
     freq = [0 for _ in start_vocab] + list(freq)
@@ -200,94 +204,111 @@ class WordVocabulary(WordVocabularyBase):
     # Restore vocabulary.
     with open(vocab_path, 'w') as f:
       for k, v in zip(rev_vocab, freq):
+        if type(k) == unicode:
+          k = k.encode('utf-8')
         f.write('%s\t%d\n' % (k,v))
     return vocab, rev_vocab
 
+class CharVocabulary(WordVocabulary):
+  tokenizer_type = CharTokenizer
+  def id2word(self, _ids):
+    return ''.join([WordVocabulary.id2word(self, _id) for _id in _ids])
 
-class PredefinedVocabWithEmbeddingBase(object):
-  def init_vocab(self, emb_configs, vocab_size=0):
-    start_vocab = START_VOCAB
-    # if self.tokenizer.lowercase:
-    #   start_vocab = [x.lower for x in lowercase]
-    pretrained = [self.load_vocab(c['path'], c['format'] == 'vec', vocab_size=vocab_size) for c in emb_configs]
-    rev_vocab = common.flatten([e.keys() for e in pretrained])
-    rev_vocab = OrderedSet(start_vocab + [self.tokenizer(w, flatten=True)[0] 
-                                          for w in rev_vocab])
-    if vocab_size:
-      rev_vocab = OrderedSet([w for i, w in enumerate(rev_vocab) if i < vocab_size])
-    vocab = collections.OrderedDict()
-    for i,t in enumerate(rev_vocab):
-      vocab[t] = i
-    embeddings = [common.flatten([emb[w] for emb in pretrained]) for w in vocab]
-    embeddings = np.array(embeddings)
-    return vocab, rev_vocab, embeddings
-
-  def load_vocab(self, embedding_path, skip_first=True, vocab_size=0):
+  def word2id(self, chars):
     '''
-    Load pretrained vocabularies and embeddings.
+    chars: List of character
     '''
-    sys.stderr.write("Loading word embeddings from {}...\n".format(embedding_path))
-    embedding_dict = None
-    if vocab_size and skip_first:
-      vocab_size += 1
-    with open(embedding_path) as f:
-      for i, line in enumerate(f.readlines()):
-        if skip_first and i == 0:
-          continue
-        #################3
-        #if False and i ==100 :
-        #if False and i==200:
-        if vocab_size and i > vocab_size:
-          break
-        #################
-        word_and_embedding = line.split()
-        word = self.tokenizer(word_and_embedding[0])
-        if len(word) > 1:
-          continue
-        else:
-          word = word[0]
-        vector = word_and_embedding[1:]
-
-        if not embedding_dict:
-          embedding_size = len(vector)
-          default_embedding = [0.0 for _ in xrange(embedding_size)]
-          embedding_dict = collections.defaultdict(lambda:default_embedding)
-          assert len(word_and_embedding) == embedding_size + 1
-
-        embedding = [float(s) for s in vector]
-        if word not in embedding_dict:
-          embedding_dict[word] = embedding
-      sys.stderr.write("Done loading word embeddings.\n")
-    return embedding_dict
+    return ''.join([WordVocabulary.word2id(self, c) for c in chars])
+  def create_vocab(self, vocab_path, texts, vocab_size=0):
+    texts = common.flatten([self.tokenizer.word2chars(word) for word in texts])
+    return WordVocabulary.create_vocab(self, vocab_path, texts, vocab_size=vocab_size)
 
 
-class WordVocabularyWithEmbedding(PredefinedVocabWithEmbeddingBase, WordVocabularyBase):
-  def __init__(self, emb_configs,
-               vocab_size=0, lowercase=False, normalize_digits=True, 
-               normalize_embedding=False):
-    self.tokenizer = WordTokenizer(lowercase=lowercase,
-                                   normalize_digits=normalize_digits)
-    self.normalize_embedding = normalize_embedding
-    self.vocab, self.rev_vocab, self.embeddings = self.init_vocab(
-      emb_configs, vocab_size)
+# class PredefinedVocabWithEmbeddingBase(object):
+#   def init_vocab(self, emb_configs, vocab_size=0):
+#     start_vocab = START_VOCAB
+#     # if self.tokenizer.lowercase:
+#     #   start_vocab = [x.lower for x in lowercase]
+#     pretrained = [self.load_vocab(c['path'], c['format'] == 'vec', vocab_size=vocab_size) for c in emb_configs]
+#     rev_vocab = common.flatten([e.keys() for e in pretrained])
+#     rev_vocab = OrderedSet(start_vocab + [self.tokenizer(w)[0] 
+#                                           for w in rev_vocab])
+#     if vocab_size:
+#       rev_vocab = OrderedSet([w for i, w in enumerate(rev_vocab) if i < vocab_size])
+#     vocab = collections.OrderedDict()
+#     for i,t in enumerate(rev_vocab):
+#       vocab[t] = i
+#     embeddings = [common.flatten([emb[w] for emb in pretrained]) for w in vocab]
+#     embeddings = np.array(embeddings)
+#     return vocab, rev_vocab, embeddings
 
-  @property
-  def lookup_table(self):
-    return tf.contrib.lookup.HashTable(
-      tf.contrib.lookup.KeyValueTensorInitializer(self.vocab.keys(), 
-                                                  self.vocab.values()), UNK_ID)
-  def add2vocab(self, token, new_embedding=None):
-    if token not in self.rev_vocab:
-      self.vocab[token] = len(self.vocab)
-      self.rev_vocab.add(token)
-      if not new_embedding:
-        new_embedding = np.zeros((1, len(self.embeddings[0])))
-      self.embeddings = np.concatenate(
-        (self.embeddings, new_embedding)
-      )
+#   def load_vocab(self, embedding_path, skip_first=True, vocab_size=0):
+#     '''
+#     Load pretrained vocabularies and embeddings.
+#     '''
+#     sys.stderr.write("Loading word embeddings from {}...\n".format(embedding_path))
+#     embedding_dict = None
+#     if vocab_size and skip_first:
+#       vocab_size += 1
+#     with open(embedding_path) as f:
+#       for i, line in enumerate(f.readlines()):
+#         if skip_first and i == 0:
+#           continue
+#         #################3
+#         #if False and i ==100 :
+#         #if False and i==200:
+#         if vocab_size and i > vocab_size:
+#           break
+#         #################
+#         word_and_embedding = line.split()
+#         word = self.tokenizer(word_and_embedding[0])
+#         if len(word) > 1:
+#           continue
+#         else:
+#           word = word[0]
+#         vector = word_and_embedding[1:]
+
+#         if not embedding_dict:
+#           embedding_size = len(vector)
+#           default_embedding = [0.0 for _ in xrange(embedding_size)]
+#           embedding_dict = collections.defaultdict(lambda:default_embedding)
+#           assert len(word_and_embedding) == embedding_size + 1
+
+#         embedding = [float(s) for s in vector]
+#         if word not in embedding_dict:
+#           embedding_dict[word] = embedding
+#       sys.stderr.write("Done loading word embeddings.\n")
+#     return embedding_dict
 
 
-class FeatureVocab(WordVocabularyBase):
-  def __init__(self, rev_vocab):
-    self.vocab, self.rev_vocab = self.init_vocab(rev_vocab)
+# class WordVocabularyWithEmbedding(PredefinedVocabWithEmbeddingBase, WordVocabularyBase):
+#   tokenizer_type = WordTokenizer
+#   def __init__(self, emb_configs,
+#                vocab_size=0, lowercase=False, normalize_digits=True, 
+#                normalize_embedding=False):
+#     self.tokenizer = self.tokenizer_type(lowercase=lowercase,
+#                                          normalize_digits=normalize_digits)
+#     self.normalize_embedding = normalize_embedding
+#     self.vocab, self.rev_vocab, self.embeddings = self.init_vocab(
+#       emb_configs, vocab_size)
+
+#   @property
+#   def lookup_table(self):
+#     return tf.contrib.lookup.HashTable(
+#       tf.contrib.lookup.KeyValueTensorInitializer(self.vocab.keys(), 
+#                                                   self.vocab.values()), UNK_ID)
+#   def add2vocab(self, token, new_embedding=None):
+#     if token not in self.rev_vocab:
+#       self.vocab[token] = len(self.vocab)
+#       self.rev_vocab.add(token)
+#       if not new_embedding:
+#         new_embedding = np.zeros((1, len(self.embeddings[0])))
+#       self.embeddings = np.concatenate(
+#         (self.embeddings, new_embedding)
+#       )
+
+
+# class FeatureVocab(WordVocabularyBase):
+#   def __init__(self, rev_vocab):
+#     self.vocab, self.rev_vocab = self.init_vocab(rev_vocab)
 

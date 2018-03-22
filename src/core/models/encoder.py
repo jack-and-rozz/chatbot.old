@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.contrib.rnn import LSTMStateTuple
 from tensorflow.python.util import nest
 from core.models import setup_cell
-from utils.tf_utils import linear
+from utils.tf_utils import linear, shape, cnn
 
 def merge_state(state):
   if isinstance(state[0], LSTMStateTuple):
@@ -16,8 +16,30 @@ def merge_state(state):
     state = tf.concat(state, 1)
   return state
 
+class CharEncoder(object):
+  def __init__(self, c_embeddings, keep_prob,
+               activation=tf.nn.tanh, shared_scope=None):
+    self.c_embeddings = c_embeddings
+    self.keep_prob = keep_prob
+    self.shared_scope = shared_scope
+
+  def __call__(self, *args, **kwargs):
+    return self.encode(*args, **kwargs)
+
+  def encode(self, inputs):
+    outputs = []
+    with tf.variable_scope(self.shared_scope or "CharEncoder"):
+      assert len(inputs.get_shape()) == 3
+      char_repls = tf.nn.embedding_lookup(self.c_embeddings, inputs)
+      batch_size = shape(char_repls, 0)
+      max_sentence_length = shape(char_repls, 1)
+      flattened_char_repls = tf.reshape(char_repls, [batch_size * max_sentence_length, shape(char_repls, 2), shape(char_repls, 3)])
+      flattened_aggregated_char_repls = cnn(flattened_char_repls)
+      outputs = tf.reshape(flattened_aggregated_char_repls, [batch_size, max_sentence_length, shape(flattened_aggregated_char_repls, 1)]) # [num_sentences, max_sentence_length, emb_size]
+    return tf.nn.dropout(outputs, self.keep_prob) 
+
 class WordEncoder(object):
-  def __init__(self, config, w_embeddings, keep_prob,
+  def __init__(self, w_embeddings, keep_prob,
                activation=tf.nn.tanh, shared_scope=None):
     self.w_embeddings = w_embeddings
     self.keep_prob = keep_prob
@@ -26,16 +48,11 @@ class WordEncoder(object):
   def __call__(self, *args, **kwargs):
     return self.encode(*args, **kwargs)
 
-  def encode(self, wc_inputs):
+  def encode(self, inputs):
     outputs = []
     with tf.variable_scope(self.shared_scope or "WordEncoder"):
-      for inputs in wc_inputs:
-        if len(inputs.get_shape()) == 3: # char-based
-          raise NotImplementedError()
-        elif len(inputs.get_shape()) == 2: # word-based
-          word_repls = tf.nn.embedding_lookup(self.w_embeddings, inputs)
-          outputs.append(word_repls)
-        outputs = tf.concat(outputs, axis=-1)
+      assert len(inputs.get_shape()) == 2 
+      outputs = tf.nn.embedding_lookup(self.w_embeddings, inputs)
     return tf.nn.dropout(outputs, self.keep_prob) 
 
 class SentenceEncoder(object):

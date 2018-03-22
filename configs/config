@@ -18,7 +18,7 @@ num_layers=1                       # The number of layers in MultiRNNCell.
 rnn_size=50                        # The dimension of RNN, and other layers.
 rnn_type=bidirectional_dynamic_rnn # The name of rnn function in tensorflow.
 cell_type=GRUCell                  # The name of RNNCell class in tensorflow.
-model_type=PointerNetwork          # The name of class defined in 'src/core/models/pointernet.py'.
+model_type=Seq2Seq                 # The name of class defined in 'src/core/models/pointernet.py'.
 dataset_type=UbuntuDialogueDataset
 
 dataset_info { # The train/valid/test dataset.
@@ -39,12 +39,11 @@ dataset_info { # The train/valid/test dataset.
 # Text processing.
 utterance_max_len = 20
 context_max_len = 4
-vocab_size = 30000          # The maximum size of the vocabulary. if 0, use all.
 lowercase=true          # Whether to convert words into lowercase or not.
 cbase = true
 wbase = true
-w_vocab_size = 0
-c_vocab_size = 0
+w_vocab_size = 30000        # The maximum size of the vocabulary. if 0, use all.
+c_vocab_size = 100
 w_embedding_size = 300
 c_embedding_size = 8
 char_vocab_path = "dataset/embeddings/char_vocab.english.txt"
