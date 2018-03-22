@@ -32,7 +32,7 @@ class Seq2Seq(ModelBase):
       batch_size = shape(self.e_inputs_w_ph, 0)
 
     with tf.variable_scope('Embeddings') as scope:
-      if w_vocab.embedddings:
+      if w_vocab.embeddings:
         initializer = tf.constant_initializer(w_vocab.embeddings) 
         trainable = config.train_embedding
       else:
@@ -43,7 +43,7 @@ class Seq2Seq(ModelBase):
         initializer=initializer,
         trainable=trainable)
 
-      if c_vocab.embedddings:
+      if c_vocab.embeddings:
         initializer = tf.constant_initializer(c_vocab.embeddings) 
         trainable = config.train_embedding
       else:
@@ -55,6 +55,7 @@ class Seq2Seq(ModelBase):
         trainable=trainable)
 
     with tf.variable_scope('Encoder', reuse=tf.AUTO_REUSE):
+      e_inputs_emb = []
       with tf.variable_scope('Word') as scope:
         word_encoder = WordEncoder(w_embeddings, self.keep_prob,
                                    shared_scope=scope)
@@ -66,7 +67,7 @@ class Seq2Seq(ModelBase):
         e_inputs_emb.append(char_encoder.encode([self.e_inputs_c_ph]))
 
       e_inputs_emb = tf.concat(e_inputs_emb, axis=-1)
-
+      print e_inputs_emb
       with tf.variable_scope('Sent') as scope:
         sent_encoder = SentenceEncoder(config, self.keep_prob, 
                                        shared_scope=scope)

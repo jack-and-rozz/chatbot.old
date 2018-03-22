@@ -70,17 +70,6 @@ class WordTokenizer(object):
       sent = sent.decode('utf-8')
     return self.word_tokenize(sent)
 
-class VocabularyBase(object):
-  def __init__(self):
-    self.vocab = None
-    self.rev_vocab = None
-    self.embeddings = None
-    self.name = None
-
-  @property
-  def size(self):
-    return len(self.vocab)
-
 class CharTokenizer(object):
   def __init__(self, lowercase=False, normalize_digits=False):
     self.lowercase = lowercase
@@ -101,6 +90,16 @@ class CharTokenizer(object):
 
     return [self.word2chars(w) for w in words]
 
+class VocabularyBase(object):
+  def __init__(self):
+    self.vocab = None
+    self.rev_vocab = None
+    self.embeddings = None
+    self.name = None
+
+  @property
+  def size(self):
+    return len(self.vocab)
 
 class WordVocabularyBase(VocabularyBase):
   def id2word(self, _id):
@@ -157,6 +156,7 @@ class WordVocabulary(WordVocabularyBase):
     Args:
     - texts: List of tokens.
     """
+    WordVocabularyBase.__init__(self)
     self.tokenizer = self.tokenizer_type(lowercase=lowercase,
                                          normalize_digits=normalize_digits)
     self.vocab, self.rev_vocab, _ = self.init_vocab(
