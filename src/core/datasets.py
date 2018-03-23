@@ -41,23 +41,42 @@ _URL = '__URL__'
 _FILEPATH = '__FILEPATH__'
 
 class _UbuntuDialogueDataset(DatasetBase):
-  def __init__(self, info, w_vocab, c_vocab):
+  def __init__(self, info, w_vocab, c_vocab, wbase=True, cbase=True):
 
     self.path = info.path
     self.max_lines = info.max_lines if info.max_lines else None
     self.w_vocab = w_vocab
     self.c_vocab = c_vocab
-    self.wbase = True
-    self.cbase = True
+    self.wbase = cbase
+    self.cbase = wbase
+    self.load = False
+    self.original = common.dotDict({
+      'w_contexts': None,
+      'c_contexts': None,
+      'responses' : None,
+    })
+    self.symbolized = common.dotDict({
+      'w_contexts': None,
+      'c_contexts': None,
+      'responses' : None,
+    })
+    # [batch_size, context_max_len, utterance_max_len]
+    # [batch_size, context_max_len, utterance_max_len, word_max_len]
 
   @classmethod
-  def preprocess_dialogue(self_class, dialogue):
+  def preprocess_dialogue(self_class, dialogue, context_max_len=0):
     speaker_changes = []
     utterances = []
     for turn in dialogue.split(_EOT):
       new_uttrs = self_class.preprocess_turn(turn)
       utterances += new_uttrs
       speaker_changes += [1] + [0 for _ in range(len(new_uttrs)-1)] 
+    # keep up to the last 'context_max_len' contexts.
+    if context_max_len:
+      utterances = utterances[-context_max_len:]
+      speaker_changes = speaker_changes[-context_max_len:]
+      # We assume a speaker change has occurred at the beginning of every dialogue.
+      speaker_changes[0] = 1
     return utterances, speaker_changes
   
   @classmethod
@@ -85,42 +104,75 @@ class _UbuntuDialogueDataset(DatasetBase):
     return uttr.strip()
 
   @common.timewatch()
-  def load_data(self):
+  def load_data(self, context_max_len=0):
     sys.stderr.write('Loading dataset from %s ...\n' % (self.path))
     data = pd.read_csv(self.path, nrows=self.max_lines)
+
+    sys.stderr.write('Preprocessing ...\n')
     if 'Label' in data:
       data = data[data['Label'] == 1]
-    self.contexts, self.speaker_changes = list(zip(*[self.preprocess_dialogue(x) for x in data['Context']]))
-    
-    if 'Utterance' in data:
-      self.responses = [self.preprocess_turn(x)[0] for x in data['Utterance']]
-    else:
-      self.responses = [self.preprocess_turn(x)[0] for x in data['Ground Truth Utterance']]
+    contexts, self.speaker_changes = list(zip(*[self.preprocess_dialogue(x, context_max_len=context_max_len) for x in data['Context']]))
+    col_response = 'Utterance' if 'Utterance' in data else 'Ground Truth Utterance'
+    responses = [self.preprocess_turn(x)[0] for x in data[col_response]]
+
     if not self.wbase and not self.cbase:
       raise ValueError('Either \'wbase\' or \'cbase\' must be True.')
+
+    # Separate contexts and responses into words (or chars), and convert them into their IDs.
     if self.wbase:
-      self.w_contexts = [[self.w_vocab.tokenizer(u) for u in context] 
-                         for context in self.contexts]
-      self.w_responses = [self.w_vocab.tokenizer(r) for r in self.responses]
+      self.original.w_contexts = [[self.w_vocab.tokenizer(u) for u in context] 
+                                  for context in contexts]
+      self.symbolized.w_contexts = [[self.w_vocab.sent2id(u) for u in context] 
+                                    for context in self.original.w_contexts]
+    else:
+      self.original.w_contexts = [None for context in contexts] 
+      self.symbolized.w_contexts = [None for context in contexts] 
+
     if self.cbase:
-      self.c_contexts = [[self.c_vocab.tokenizer(u) for u in context] 
-                         for context in self.contexts]
-      self.c_responses = [self.c_vocab.tokenizer(r) for r in self.responses]
-    
+      self.original.c_contexts = [[self.c_vocab.tokenizer(u) for u in context] 
+                                  for context in contexts]
 
+      self.symbolized.c_contexts = [[self.c_vocab.sent2id(u) for u in context] 
+                                    for context in self.original.c_contexts]
+    else:
+      self.original.c_contexts = [None for context in contexts]
+      self.symbolized.c_contexts = [None for context in contexts]
+    self.original.responses = [self.w_vocab.tokenizer(r) for r in responses]
+    self.symbolized.responses = [self.w_vocab.sent2id(r) for r in responses]
 
-  def get_batch(self, batch_size, 
-                utterance_max_len=None, context_max_len=None, shuffle=False):
+  def get_batch(self, batch_size, word_max_len=0,
+                utterance_max_len=0, context_max_len=0, shuffle=False):
+    if not self.load:
+      self.load_data(context_max_len=context_max_len) # lazy loading.
+      self.load = True
 
-    self.load_data() # lazy loading.
-    return None
+    if self.wbase:
+      w_contexts = self.symbolized.w_contexts
+    if self.cbase:
+      c_contexts = self.symbolized.c_contexts
+    responses = self.symbolized.responses
+    speaker_changes = self.speaker_changes
 
-    #return self.tensorized
-    # sources, targets = self.symbolized
-    # if input_max_len:
-    #   paired = [(s,t) for s,t in zip(sources, targets) if not len(s) > input_max_len ]
-    #   sources, targets = list(zip(*paired))
-
+    data = [tuple(x) for x in zip(w_contexts, c_contexts, responses, speaker_changes)]
+    if shuffle: # For training.
+      random.shuffle(data)
+    for i, b in itertools.groupby(enumerate(data), 
+                                  lambda x: x[0] // (batch_size)):
+      batch = [x[1] for x in b]
+      w_contexts, c_contexts, responses, speaker_changes = zip(*batch)
+      if self.wbase:
+        pass
+      if self.cbase:
+        pass
+      responses = tf.keras.preprocessing.sequence.pad_sequences(
+        responses, maxlen=utterance_max_len, 
+        padding='post', truncating='post', value=PAD_ID)
+      yield common.dotDict({
+        'w_contexts': w_contexts,
+        'c_contexts': c_contexts,
+        'responses': responses,
+        'speaker_changes': speaker_changes
+      })
     # sources =  tf.keras.preprocessing.sequence.pad_sequences(sources, maxlen=input_max_len, padding='post', truncating='post', value=PAD_ID)
     # targets = list(zip(*targets)) # to column-major. (for padding)
     # targets = [tf.keras.preprocessing.sequence.pad_sequences(targets_by_column, maxlen=output_max_len, padding='post', truncating='post', value=PAD_ID) for targets_by_column in targets]

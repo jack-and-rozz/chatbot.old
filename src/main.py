@@ -26,7 +26,6 @@ class Manager(object):
   def __init__(self, args, sess, vocab=None):
     self.sess = sess
     self.config = self.load_config(args)
-    self.mode = args.mode
     self.logger = common.logManager(handler=FileHandler(args.log_file)) if args.log_file else common.logManager()
 
     sys.stderr.write(str(self.config) + '\n')
@@ -61,12 +60,16 @@ class Manager(object):
     # Overwrite configs by temporary args. They have higher priorities than those in the config of models.
     if 'dataset_type' in args and args.dataset_type:
       config['dataset_type'] = args.dataset_type
+    if 'train_data_size' in args and args.train_data_size:
+      config['dataset_info']['train']['size'] = args.train_data_size
     if 'train_data_path' in args and args.train_data_path:
       config['dataset_info']['train']['path'] = args.train_data_path
     if 'test_data_path' in args and args.test_data_path:
       config['dataset_info']['test']['path'] = args.test_data_path
     if 'batch_size' in args and args.batch_size:
       config['batch_size'] = args.batch_size
+    if 'w_vocab_size' in args and args.w_vocab_size:
+      config['w_vocab_size'] = args.w_vocab_size
     if 'target_attribute' in args and args.target_attribute:
       config['target_attribute'] = args.target_attribute
 
@@ -100,8 +103,9 @@ class Manager(object):
     testing_results = []
     for epoch in xrange(model.epoch.eval(), self.config.max_epoch):
       train_batches = self.dataset.train.get_batch(
-        self.config.batch_size, input_max_len=self.config.input_max_len, 
-        output_max_len=self.config.output_max_len, shuffle=True)
+        self.config.batch_size, 
+        utterance_max_len=self.config.utterance_max_len, 
+        context_max_len=self.config.context_max_len, shuffle=True)
 
       loss, epoch_time = model.train(train_batches)
       summary = tf_utils.make_summary({
@@ -128,6 +132,16 @@ class Manager(object):
     batches = self.dataset.train.get_batch(
       config.batch_size, utterance_max_len=config.utterance_max_len,
       context_max_len=config.context_max_len, shuffle=False)
+    return batches
+    for b in batches:
+      #print b
+      print 'w_contexts:', b.w_contexts[0]
+      print '\n'.join([self.w_vocab.id2sent(x, join=True) for x in b.w_contexts[0]])
+      print 'c_contexts:', b.c_contexts[0]
+      print '\n'.join([self.c_vocab.id2sent(x, join=True) for x in b.c_contexts[0]])
+      print 'response:', b.responses[0] 
+      print self.w_vocab.id2sent(b.responses[0], join=True)
+      exit(1)
     pass
 
   def demo(self, model=None, inp=None):
@@ -223,8 +237,11 @@ if __name__ == "__main__":
   parser.add_argument("--cleanup", default=False, type=common.str2bool)
   parser.add_argument("--interactive", default=False, type=common.str2bool)
   parser.add_argument("--log_file", default=None, type=str)
+  parser.add_argument("--train_data_size", default=None, type=int)
+  parser.add_argument("--train_data_path", default=None, type=str)
   parser.add_argument("--test_data_path", default=None, type=str)
   parser.add_argument("--batch_size", default=None, type=int)
+  parser.add_argument("--w_vocab_size", default=None, type=int)
   args  = parser.parse_args()
   main(args)
 

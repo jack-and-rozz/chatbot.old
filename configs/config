@@ -39,6 +39,7 @@ dataset_info { # The train/valid/test dataset.
 # Text processing.
 utterance_max_len = 20
 context_max_len = 4
+word_max_len = 20
 lowercase=true          # Whether to convert words into lowercase or not.
 cbase = true
 wbase = true

@@ -2,7 +2,7 @@
 
 # List of arguments that can be dynamically specified at runtime.
 # e.g. ./run.sh checkpoint/tmp test --test_data_path=dataset/test.another
-params_list=(log_file interactive cleanup test_data_path evaluate_data_path debug batch_size vocab_size)
+params_list=(log_file interactive cleanup train_data_path test_data_path evaluate_data_path debug batch_size vocab_size train_data_size)
 
 usage() {
     echo "Usage:$0 checkpoint_path mode [config_path]"

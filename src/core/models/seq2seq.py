@@ -6,7 +6,7 @@ from pprint import pprint
 import tensorflow as tf
 from utils.tf_utils import shape
 from core.models import ModelBase, setup_cell
-from core.models.encoder import WordEncoder, SentenceEncoder
+from core.models.encoder import CharEncoder, WordEncoder, SentenceEncoder
 from core.extensions.pointer import pointer_decoder 
 from core.vocabularies import BOS_ID
 
@@ -55,25 +55,27 @@ class Seq2Seq(ModelBase):
         trainable=trainable)
 
     with tf.variable_scope('Encoder', reuse=tf.AUTO_REUSE):
+      assert config.wbase or config.cbase
       e_inputs_emb = []
       with tf.variable_scope('Word') as scope:
-        word_encoder = WordEncoder(w_embeddings, self.keep_prob,
-                                   shared_scope=scope)
-        e_inputs_emb.append(word_encoder.encode([self.e_inputs_w_ph]))
+        if config.wbase:
+          word_encoder = WordEncoder(w_embeddings, self.keep_prob,
+                                     shared_scope=scope)
+          e_inputs_emb.append(word_encoder.encode(self.e_inputs_w_ph))
 
       with tf.variable_scope('Char') as scope:
-        char_encoder = CharEncoder(c_embeddings, self.keep_prob,
-                                   shared_scope=scope)
-        e_inputs_emb.append(char_encoder.encode([self.e_inputs_c_ph]))
+        if config.cbase:
+          char_encoder = CharEncoder(c_embeddings, self.keep_prob,
+                                     shared_scope=scope)
+          e_inputs_emb.append(char_encoder.encode(self.e_inputs_c_ph))
 
       e_inputs_emb = tf.concat(e_inputs_emb, axis=-1)
       print e_inputs_emb
       with tf.variable_scope('Sent') as scope:
         sent_encoder = SentenceEncoder(config, self.keep_prob, 
                                        shared_scope=scope)
-      e_inputs_w_length = tf.count_nonzero(self.e_inputs_w_ph, axis=1)
-      e_outputs, e_state = sent_encoder.encode(
-        e_inputs_emb, e_inputs_length)
+        e_inputs_w_length = tf.count_nonzero(self.e_inputs_w_ph, axis=1)
+        e_outputs, e_state = sent_encoder.encode(e_inputs_emb, e_inputs_w_length)
       attention_states = e_outputs
 
     # self.d_outputs_ph = []

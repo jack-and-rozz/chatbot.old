@@ -216,9 +216,10 @@ class CharVocabulary(WordVocabulary):
 
   def word2id(self, chars):
     '''
-    chars: List of character
+    chars: A word represented as a list of characters.
     '''
-    return ''.join([WordVocabulary.word2id(self, c) for c in chars])
+    return [WordVocabulary.word2id(self, c) for c in chars]
+
   def create_vocab(self, vocab_path, texts, vocab_size=0):
     texts = common.flatten([self.tokenizer.word2chars(word) for word in texts])
     return WordVocabulary.create_vocab(self, vocab_path, texts, vocab_size=vocab_size)
