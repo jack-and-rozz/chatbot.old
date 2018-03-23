@@ -1,5 +1,4 @@
 #!/bin/bash
- #自分でオプションを解析。順番自由、ロングオプションも可能
 # http://qiita.com/b4b4r07/items/dcd6be0bb9c9185475bb
 
 declare -i argc=0
