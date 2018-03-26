@@ -18,7 +18,7 @@ rnn_size=100                        # The dimension of RNN, and other layers.
 rnn_type=bidirectional_dynamic_rnn # The name of rnn function in tensorflow.
 cell_type=GRUCell                  # The name of RNNCell class in tensorflow.
 model_type=Seq2Seq                 # The name of class defined in 'src/core/models/pointernet.py'.
-beam_width = 3
+beam_width = 2
 
 #dataset_type=UbuntuDialogueDataset
 #dataset_path=dataset/ubuntu-dialogue
@@ -31,17 +31,17 @@ dataset_info { # The train/valid/test dataset.
   }
   valid = {
     path = ${dataset_path}/valid.csv
-    max_lines = 10
+    max_lines = 0
   }
   test = {
     path = ${dataset_path}/test.csv
-    max_lines = 10
+    max_lines = 1
   }
 }
 
 # Text processing.
 utterance_max_len = 25
-context_max_len = 1
+context_max_len = 3
 word_max_len = 0
 lowercase=true          # Whether to convert words into lowercase or not.
 #cbase = true

@@ -184,6 +184,8 @@ class Manager(object):
         checkpoint_path=self.checkpoints_path + '/model.ckpt.best')
     batches = dataset.get_batch(
       config.batch_size, utterance_max_len=0, shuffle=False)
+    if not in_training:
+      sys.stderr.write('Start Decoding...\n')
     res = model.test(batches)
     test_filename = '%s.%02d' % (test_filename, model.epoch.eval()) if in_training else '%s.best' % (test_filename)
     test_output_path = os.path.join(self.tests_path, test_filename)

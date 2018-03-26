@@ -61,36 +61,21 @@ class Seq2Seq(ModelBase):
     # e_inputs: [1, 40, 44, 0, 0], d_outputs: [2, 0, 0] (target=44)
     with tf.name_scope('Placeholders'):
       self.e_inputs_w_ph = tf.placeholder(
-        tf.int32, [10, None, None], name="EncoderInputWords")
+        tf.int32, [None, None, None], name="EncoderInputWords")
 
       # batch_size, context_len, utterance_len, word_len
       self.e_inputs_c_ph = tf.placeholder(
-        tf.int32, [10, None, None, None], name="EncoderInputChars")
+        tf.int32, [None, None, None, None], name="EncoderInputChars")
 
       # batch_size, utterance_len, 
       self.d_outputs_ph = tf.placeholder(
-        tf.int32, [10, None], name="DecoderOutput")
+        tf.int32, [None, None], name="DecoderOutput")
         #tf.int32, [None, config.utterance_max_len], name="DecoderOutput")
       self.speaker_changes_ph = tf.placeholder(
-        tf.int32, [10, None], name="SpeakerChanges")
-
-      # self.e_inputs_w_ph = tf.placeholder(
-      #   tf.int32, [None, None, None], name="EncoderInputWords")
-
-      # # batch_size, context_len, utterance_len, word_len
-      # self.e_inputs_c_ph = tf.placeholder(
-      #   tf.int32, [None, None, None, None], name="EncoderInputChars")
-
-      # # batch_size, utterance_len, 
-      # self.d_outputs_ph = tf.placeholder(
-      #   tf.int32, [None, None], name="DecoderOutput")
-      #   #tf.int32, [None, config.utterance_max_len], name="DecoderOutput")
-      # self.speaker_changes_ph = tf.placeholder(
-      #   tf.int32, [None, None], name="SpeakerChanges")
+        tf.int32, [None, None], name="SpeakerChanges")
 
     with tf.name_scope('batch_size'):
       batch_size = shape(self.e_inputs_w_ph, 0)
-      batch_size=10
       
     with tf.variable_scope('Embeddings') as scope:
       if w_vocab.embeddings:
