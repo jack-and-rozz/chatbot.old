@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.contrib.rnn import LSTMStateTuple
 from tensorflow.python.util import nest
 from core.models import setup_cell
-from utils.tf_utils import linear, shape, cnn
+from utils.tf_utils import linear, shape, cnn, flatten
 
 def merge_state(state):
   if isinstance(state[0], LSTMStateTuple):
@@ -16,32 +16,29 @@ def merge_state(state):
     state = tf.concat(state, 1)
   return state
 
-class CharEncoder(object):
-  def __init__(self, c_embeddings, keep_prob,
-               activation=tf.nn.tanh, shared_scope=None):
-    self.c_embeddings = c_embeddings
+class CNNEncoder(object):
+  def __init__(self, keep_prob,
+               activation=tf.nn.relu, shared_scope=None):
     self.keep_prob = keep_prob
     self.shared_scope = shared_scope
+    self.activation = activation
 
   def __call__(self, *args, **kwargs):
     return self.encode(*args, **kwargs)
 
   def encode(self, inputs):
-    outputs = []
-    with tf.variable_scope(self.shared_scope or "CharEncoder"):
-      assert len(inputs.get_shape()) == 3
-      char_repls = tf.nn.embedding_lookup(self.c_embeddings, inputs)
-      batch_size = shape(char_repls, 0)
-      max_sentence_length = shape(char_repls, 1)
-      flattened_char_repls = tf.reshape(char_repls, [batch_size * max_sentence_length, shape(char_repls, 2), shape(char_repls, 3)])
-      flattened_aggregated_char_repls = cnn(flattened_char_repls)
-      outputs = tf.reshape(flattened_aggregated_char_repls, [batch_size, max_sentence_length, shape(flattened_aggregated_char_repls, 1)]) # [num_sentences, max_sentence_length, emb_size]
+    with tf.variable_scope(self.shared_scope or "CNNEncoder"):
+      target_rank = 3 # [*, max_sequence_length, hidden_size]
+      flattened_inputs, prev_shape = flatten(inputs, target_rank)
+      flattened_aggregated_inputs = cnn(flattened_inputs, 
+                                        activation=self.activation)
+      target_shape = prev_shape[:-2] + [shape(flattened_aggregated_inputs, -1)]
+      outputs = tf.reshape(flattened_aggregated_inputs, target_shape)
     return tf.nn.dropout(outputs, self.keep_prob) 
+CharEncoder = CNNEncoder
 
 class WordEncoder(object):
-  def __init__(self, w_embeddings, keep_prob,
-               activation=tf.nn.tanh, shared_scope=None):
-    self.w_embeddings = w_embeddings
+  def __init__(self, keep_prob, activation=tf.nn.relu, shared_scope=None):
     self.keep_prob = keep_prob
     self.shared_scope = shared_scope
 
@@ -51,13 +48,12 @@ class WordEncoder(object):
   def encode(self, inputs):
     outputs = []
     with tf.variable_scope(self.shared_scope or "WordEncoder"):
-      assert len(inputs.get_shape()) == 2 
-      outputs = tf.nn.embedding_lookup(self.w_embeddings, inputs)
+      outputs = inputs
     return tf.nn.dropout(outputs, self.keep_prob) 
 
-class SentenceEncoder(object):
+class RNNEncoder(object):
   def __init__(self, config, keep_prob,
-               activation=tf.nn.tanh, shared_scope=None):
+               activation=tf.nn.relu, shared_scope=None):
     self.rnn_size = config.rnn_size
     self.keep_prob = keep_prob
     self.activation = activation
@@ -77,12 +73,12 @@ class SentenceEncoder(object):
   def __call__(self, *args, **kwargs):
     return self.encode(*args, **kwargs)
 
-  def encode(self, input_embeddings, sequence_length):
-    with tf.variable_scope(self.shared_scope or "SentenceEncoder") as scope:
+  def encode(self, inputs, sequence_length):
+    with tf.variable_scope(self.shared_scope or "RNNEncoder") as scope:
       if self.cell_bw is not None:
         outputs, state = tf.nn.bidirectional_dynamic_rnn(
-        self.cell_fw, self.cell_bw, input_embeddings,
-        sequence_length=sequence_length, dtype=tf.float32, scope=scope)
+          self.cell_fw, self.cell_bw, inputs,
+          sequence_length=sequence_length, dtype=tf.float32, scope=scope)
         with tf.variable_scope("outputs"):
           outputs = tf.concat(outputs, 2)
           outputs = linear(outputs, self.rnn_size)
@@ -93,6 +89,6 @@ class SentenceEncoder(object):
           state = linear(state, self.rnn_size)
       else:
         outputs, state = tf.nn.dynamic_rnn(
-          self.cell_fw, input_embeddings,
+          self.cell_fw, inputs,
           sequence_length=sequence_length, dtype=tf.float32, scope=scope)
     return outputs, state

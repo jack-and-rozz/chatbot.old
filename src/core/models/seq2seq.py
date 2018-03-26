@@ -1,36 +1,97 @@
 # coding:utf-8
+# https://github.com/tensorflow/tensorflow/issues/11598
 import math, sys, time
 import numpy as np
 from pprint import pprint
 
 import tensorflow as tf
 from utils.tf_utils import shape
+from utils.common import flatten
 from core.models import ModelBase, setup_cell
-from core.models.encoder import CharEncoder, WordEncoder, SentenceEncoder
+from core.models.encoder import CharEncoder, WordEncoder, RNNEncoder, CNNEncoder
 from core.extensions.pointer import pointer_decoder 
-from core.vocabularies import BOS_ID
+from core.vocabularies import BOS_ID, PAD_ID
+
+class SharedDenseLayer(tf.layers.Dense):
+  def __init__(self, *args, **kwargs):
+    super(SharedDenseLayer, self).__init__(*args, **kwargs)
+    self.kernel = None
+
+  def add_kernel(self, tensor):
+    assert shape(tensor, 0) == self.units
+    self.kernel = tensor 
+
+  def build(self, input_shape):
+    input_shape = tensor_shape.TensorShape(input_shape)
+    if input_shape[-1].value is None:
+      raise ValueError('The last dimension of the inputs to `Dense` '
+                       'should be defined. Found `None`.')
+    self.input_spec = base.InputSpec(min_ndim=2,
+                                     axes={-1: input_shape[-1].value})
+    if not self.kernel:
+      self.kernel = self.add_variable('kernel',
+                                      shape=[input_shape[-1].value, self.units],
+                                      initializer=self.kernel_initializer,
+                                      regularizer=self.kernel_regularizer,
+                                      constraint=self.kernel_constraint,
+                                      dtype=self.dtype,
+                                      trainable=True)
+    if self.use_bias:
+      self.bias = self.add_variable('bias',
+                                    shape=[self.units,],
+                                    initializer=self.bias_initializer,
+                                    regularizer=self.bias_regularizer,
+                                    constraint=self.bias_constraint,
+                                    dtype=self.dtype,
+                                    trainable=True)
+    else:
+      self.bias = None
+    self.built = True
 
 class Seq2Seq(ModelBase):
   def __init__(self, sess, config, w_vocab, c_vocab):
     ModelBase.__init__(self, sess, config)
     self.w_vocab = w_vocab
     self.c_vocab = c_vocab
-    output_max_len = config.utterance_max_len
     self.is_training = tf.placeholder(tf.bool, [], name='is_training')
     with tf.name_scope('keep_prob'):
       self.keep_prob = 1.0 - tf.to_float(self.is_training) * config.dropout_rate
 
     # <Sample input>
     # e_inputs: [1, 40, 44, 0, 0], d_outputs: [2, 0, 0] (target=44)
-    with tf.name_scope('EncoderInput'):
+    with tf.name_scope('Placeholders'):
       self.e_inputs_w_ph = tf.placeholder(
-        tf.int32, [None, None], name="EncoderInputWords")
+        tf.int32, [10, None, None], name="EncoderInputWords")
+
+      # batch_size, context_len, utterance_len, word_len
       self.e_inputs_c_ph = tf.placeholder(
-        tf.int32, [None, None, None], name="EncoderInputChars")
+        tf.int32, [10, None, None, None], name="EncoderInputChars")
+
+      # batch_size, utterance_len, 
+      self.d_outputs_ph = tf.placeholder(
+        tf.int32, [10, None], name="DecoderOutput")
+        #tf.int32, [None, config.utterance_max_len], name="DecoderOutput")
+      self.speaker_changes_ph = tf.placeholder(
+        tf.int32, [10, None], name="SpeakerChanges")
+
+      # self.e_inputs_w_ph = tf.placeholder(
+      #   tf.int32, [None, None, None], name="EncoderInputWords")
+
+      # # batch_size, context_len, utterance_len, word_len
+      # self.e_inputs_c_ph = tf.placeholder(
+      #   tf.int32, [None, None, None, None], name="EncoderInputChars")
+
+      # # batch_size, utterance_len, 
+      # self.d_outputs_ph = tf.placeholder(
+      #   tf.int32, [None, None], name="DecoderOutput")
+      #   #tf.int32, [None, config.utterance_max_len], name="DecoderOutput")
+      # self.speaker_changes_ph = tf.placeholder(
+      #   tf.int32, [None, None], name="SpeakerChanges")
 
     with tf.name_scope('batch_size'):
       batch_size = shape(self.e_inputs_w_ph, 0)
-
+      batch_size=10
+      
     with tf.variable_scope('Embeddings') as scope:
       if w_vocab.embeddings:
         initializer = tf.constant_initializer(w_vocab.embeddings) 
@@ -43,90 +104,171 @@ class Seq2Seq(ModelBase):
         initializer=initializer,
         trainable=trainable)
 
-      if c_vocab.embeddings:
-        initializer = tf.constant_initializer(c_vocab.embeddings) 
-        trainable = config.train_embedding
-      else:
-        initializer = None
-        trainable = True 
-      c_embeddings = self.initialize_embeddings(
-        'Char', [c_vocab.size, config.c_embedding_size],
-        initializer=initializer,
-        trainable=trainable)
+      if c_vocab:
+        if c_vocab.embeddings:
+          initializer = tf.constant_initializer(c_vocab.embeddings) 
+          trainable = config.train_embedding
+        else:
+          initializer = None
+          trainable = True 
+        c_embeddings = self.initialize_embeddings(
+          'Char', [c_vocab.size, config.c_embedding_size],
+          initializer=initializer,
+          trainable=trainable)
+      sc_embeddings = self.initialize_embeddings(
+          'SpeakerChange', [2, config.feature_size],
+          trainable=trainable)
+      speaker_changes = tf.nn.embedding_lookup(sc_embeddings, self.speaker_changes_ph)
 
     with tf.variable_scope('Encoder', reuse=tf.AUTO_REUSE):
-      assert config.wbase or config.cbase
-      e_inputs_emb = []
+      assert self.w_vocab or self.c_vocab
+      word_repls = []
       with tf.variable_scope('Word') as scope:
-        if config.wbase:
-          word_encoder = WordEncoder(w_embeddings, self.keep_prob,
-                                     shared_scope=scope)
-          e_inputs_emb.append(word_encoder.encode(self.e_inputs_w_ph))
+        w_inputs = tf.nn.embedding_lookup(w_embeddings, self.e_inputs_w_ph)
+        word_encoder = WordEncoder(self.keep_prob, shared_scope=scope)
+        word_repls.append(word_encoder.encode(w_inputs))
 
       with tf.variable_scope('Char') as scope:
-        if config.cbase:
-          char_encoder = CharEncoder(c_embeddings, self.keep_prob,
-                                     shared_scope=scope)
-          e_inputs_emb.append(char_encoder.encode(self.e_inputs_c_ph))
+        if self.c_vocab:
+          c_inputs = tf.nn.embedding_lookup(c_embeddings, self.e_inputs_c_ph)
+          char_encoder = CNNEncoder(self.keep_prob, shared_scope=scope)
+          word_repls.append(char_encoder.encode(c_inputs))
 
-      e_inputs_emb = tf.concat(e_inputs_emb, axis=-1)
-      print e_inputs_emb
-      with tf.variable_scope('Sent') as scope:
-        sent_encoder = SentenceEncoder(config, self.keep_prob, 
-                                       shared_scope=scope)
-        e_inputs_w_length = tf.count_nonzero(self.e_inputs_w_ph, axis=1)
-        e_outputs, e_state = sent_encoder.encode(e_inputs_emb, e_inputs_w_length)
-      attention_states = e_outputs
+      self.word_repls = word_repls = tf.concat(word_repls, axis=-1) # [batch_size, context_len, utterance_len, word_emb_size + cnn_output_size]
 
-    # self.d_outputs_ph = []
-    # self.losses = []
-    # self.greedy_predictions = []
-    # self.copied_inputs = []
-    # for i, col_name in enumerate(config.target_columns):
-    #   with tf.name_scope('DecoderOutput%d' % i):
-    #     d_outputs_ph = tf.placeholder(
-    #       tf.int32, [None, output_max_len], name="DecoderOutput")
 
-    #   ds_name = 'Decoder' if config.share_decoder else 'Decoder%d' % i 
-    #   with tf.variable_scope(ds_name) as scope:
-    #     d_cell = setup_cell(config.cell_type, config.rnn_size, config.num_layers,
-    #                         keep_prob=self.keep_prob)
-    #     teacher_forcing = config.teacher_forcing if 'teacher_forcing' in config else False
-    #     d_outputs, predictions, copied_inputs = setup_decoder(
-    #       d_outputs_ph, e_inputs_emb, e_state, attention_states, d_cell, 
-    #       batch_size, output_max_len, scope=scope, 
-    #       teacher_forcing=teacher_forcing)
-    #     self.copied_inputs.append(copied_inputs)
-    #     d_outputs_length = tf.count_nonzero(d_outputs_ph, axis=1, 
-    #                                         name='outputs_length')
-    #     with tf.name_scope('add_eos'):
-    #       targets = tf.concat([d_outputs_ph, tf.zeros([batch_size, 1], dtype=tf.int32)], axis=1)
+      with tf.variable_scope('Sentence') as scope:
+        sent_encoder = CNNEncoder(self.keep_prob, shared_scope=scope)
+        sent_repls = sent_encoder.encode(word_repls)
+        # sent_encoder = RNNEncoder(config, self.keep_prob, 
+        #                                shared_scope=scope)
+        # e_inputs_w_length = tf.count_nonzero(self.e_inputs_w_ph, axis=1)
+        # e_outputs, e_state = sent_encoder.encode(word_repls, e_inputs_w_length)
 
-    #     # the length of outputs should be also added by 1 because of EOS. 
-    #     with tf.name_scope('output_weights'):
-    #       d_outputs_weights = tf.sequence_mask(
-    #         d_outputs_length+1, maxlen=shape(d_outputs_ph, 1)+1, dtype=tf.float32)
-    #     with tf.name_scope('loss%d' % i):
-    #       loss = tf.contrib.seq2seq.sequence_loss(
-    #         d_outputs, targets, d_outputs_weights)
-    #   self.d_outputs_ph.append(d_outputs_ph)
-    #   self.losses.append(loss)
-    #   self.greedy_predictions.append(predictions)
-    # with tf.name_scope('Loss'):
-    #   self.loss = tf.reduce_mean(self.losses)
-    # self.updates = self.get_updates(self.loss)
+        # Concatenate the feature_embeddings with eac sentence representations.
+        sent_repls = tf.concat([sent_repls, speaker_changes], axis=-1)
+
+      with tf.variable_scope('Dialogue') as scope:
+        dial_encoder = RNNEncoder(config, self.keep_prob, shared_scope=scope)
+        # Count the length of each dialogue, utterance, (word).
+        sent_lengths = tf.count_nonzero(self.e_inputs_w_ph, axis=2, dtype=tf.int32)
+        dial_lengths = tf.count_nonzero(sent_lengths, axis=1, dtype=tf.int32)
+        encoder_outputs, encoder_state = dial_encoder.encode(sent_repls, dial_lengths)
+
+    ## Decoder
+    with tf.variable_scope('Decoder') as scope:
+      with tf.name_scope('start_tokens'):
+        start_tokens = tf.tile(tf.constant([BOS_ID], dtype=tf.int32), [batch_size])
+      with tf.name_scope('end_tokens'):
+        end_token = PAD_ID
+        end_tokens = tf.tile(tf.constant([end_token], dtype=tf.int32), [batch_size])
+      with tf.name_scope('decoder_inputs'):
+        decoder_inputs = tf.concat([tf.expand_dims(start_tokens, 1), self.d_outputs_ph], axis=1)
+      # the length of decoder's inputs/outputs is increased by 1 because of BOS or EOS.
+      with tf.name_scope('decoder_lengths'):
+        decoder_lengths = tf.count_nonzero(self.d_outputs_ph, axis=1, dtype=tf.int32)+1 
+      with tf.name_scope('target_weights'):
+        target_weights = tf.sequence_mask(decoder_lengths, dtype=tf.float32)
+
+      with tf.name_scope('targets'):
+        targets = tf.concat([self.d_outputs_ph, tf.expand_dims(end_tokens, 1)], axis=1)[:, :shape(target_weights, 1)]
+
+
+      decoder_inputs_emb = tf.nn.embedding_lookup(w_embeddings, decoder_inputs)
+      helper = tf.contrib.seq2seq.TrainingHelper(
+        decoder_inputs_emb, sequence_length=decoder_lengths, time_major=False)
+      
+      # TODO: 多言語対応にする時はbias, trainableをfalseにしてembeddingをconstantにしたい
+
+      decoder_cell = setup_cell(config.cell_type, config.rnn_size, 
+                                config.num_layers,keep_prob=self.keep_prob)
+
+      projection_layer = tf.layers.Dense(
+        self.w_vocab.size,
+        use_bias=True, trainable=True) 
+
+      with tf.name_scope('Training'):
+        num_units = shape(encoder_state, -1)
+        attention_states = encoder_outputs
+        attention = tf.contrib.seq2seq.LuongAttention(
+          num_units, attention_states,
+          memory_sequence_length=dial_lengths)
+        decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+          decoder_cell, attention)
+
+        # encoder_state can't be directly copied into decoder_cell when using the attention mechanisms, initial_state must be an instance of AttentionWrapperState. (https://github.com/tensorflow/nmt/issues/205)
+        decoder_initial_state = decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=encoder_state)
+        decoder = tf.contrib.seq2seq.BasicDecoder(
+          decoder_cell, helper, decoder_initial_state,
+          output_layer=projection_layer)
+          
+        train_decoder_outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(
+          decoder, 
+          impute_finished=True,
+          maximum_iterations=tf.reduce_max(decoder_lengths),
+          scope=scope)
+        logits = train_decoder_outputs.rnn_output
+
+      with tf.name_scope('Test'):
+        num_units = shape(encoder_state, -1)
+        attention = tf.contrib.seq2seq.LuongAttention(
+          num_units, 
+          attention_states,
+          memory_sequence_length=dial_lengths)
+          # tf.contrib.seq2seq.tile_batch(attention_states, 
+          #                               multiplier=config.beam_width),
+          # memory_sequence_length=tf.contrib.seq2seq.tile_batch(
+          #   dial_lengths, multiplier=config.beam_width))
+        # print 1,tf.contrib.seq2seq.tile_batch(attention_states, 
+        #                                     multiplier=config.beam_width)
+        # print 2,tf.contrib.seq2seq.tile_batch(
+        #     dial_lengths, multiplier=config.beam_width)
+        
+        decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+          decoder_cell, attention)
+
+        # print 3,decoder_cell.zero_state(batch_size, tf.float32)
+        # print 4, decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=config.beam_width))
+
+        #decoder_initial_state = decoder_cell.zero_state(batch_size*config.beam_width, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=config.beam_width))
+        decoder_initial_state = decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=config.beam_width))
+        #self.debug = [encoder_state, decoder_initial_state]
+        #print encoder_state
+        #print decoder_initial_state
+        #exit(1)
+        decoder = tf.contrib.seq2seq.BeamSearchDecoder(
+          decoder_cell, w_embeddings, start_tokens, end_token, 
+          decoder_initial_state,
+          config.beam_width, 
+          output_layer=projection_layer)
+        test_decoder_outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(
+          decoder, 
+          impute_finished=False,
+          scope=scope)
+        self.predictions = test_decoder_outputs.predicted_ids
+          #FinalBeamDecoderOutput(predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose:0' shape=(?, ?, 3) dtype=int32>, beam_search_decoder_output=BeamSearchDecoderOutput(scores=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_1:0' shape=(?, ?, 3) dtype=float32>, predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_2:0' shape=(?, ?, 3) dtype=int32>, parent_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_3:0' shape=(?, ?, 3) dtype=int32>))
+
+    with tf.name_scope('Loss'):
+      self.loss = tf.contrib.seq2seq.sequence_loss(logits, targets, target_weights)
+    self.updates = self.get_updates(self.loss)
+    #self.debug = [decoder_inputs, decoder_outputs, logits, d_state, d_sequence_length, target_weights, decoder_lengths]
+    self.debug = [logits]
 
   def get_input_feed(self, batch, is_training):
     feed_dict = {
-      self.e_inputs_w_ph: batch.w_sources,
-      self.e_inputs_c_ph: batch.c_sources,
-      self.d_outputs_ph: batch.targets,
+      self.d_outputs_ph: np.array(batch.responses),
       self.is_training: is_training,
+      self.speaker_changes_ph: np.array(batch.speaker_changes)
     }
-    return feed_dict
+    feed_dict[self.e_inputs_w_ph] = np.array(batch.w_contexts)
+    if self.c_vocab:
+      feed_dict[self.e_inputs_c_ph] = np.array(batch.c_contexts)
+    # print '<<<<<get_input_feed>>>>'
+    # for k,v in feed_dict.items():
+    #   if type(v) == np.ndarray:
+    #     print k, v #v.shape
 
-  def debug(self, data):
-    pass
+    return feed_dict
 
   def train(self, data):
     loss = 0.0
@@ -134,9 +276,22 @@ class Seq2Seq(ModelBase):
     epoch_time = 0.0
     for i, batch in enumerate(data):
       feed_dict = self.get_input_feed(batch, True)
+      # for x,resx in zip(self.debug, self.sess.run(self.debug, feed_dict)):
+      #   print x
+      #   print resx.shape
+      #   print np.exp(resx).shape
+      #   print np.sum(np.exp(resx), axis=2)
+      # exit(1)
       t = time.time()
-      step_loss, _ = self.sess.run([self.losses, self.updates], feed_dict)
-      step_loss = np.mean(step_loss)
+      step_loss, _ = self.sess.run([self.loss, self.updates], feed_dict)
+      print self.epoch.eval(), i, step_loss
+      if math.isnan(step_loss):
+        sys.stderr.write('Got a Nan loss.\n')
+        for x in feed_dict:
+          print x
+          print feed_dict[x]
+        exit(1)
+      sys.stdout.flush()
       epoch_time += time.time() - t
       loss += math.exp(step_loss)
       num_steps += 1
@@ -149,8 +304,20 @@ class Seq2Seq(ModelBase):
     predictions = []
     for i, batch in enumerate(data):
       feed_dict = self.get_input_feed(batch, False)
-      predictions_dist = self.sess.run(self.predictions, feed_dict)
-      batch_predictions = [np.argmax(dist, axis=2) for dist in predictions_dist]
+      for x,resx in zip(self.debug, self.sess.run(self.debug, feed_dict)):
+        print x
+        print resx.shape
+      exit(1)
+      predictions = self.sess.run(self.predictions, feed_dict)
+      inputs.append(batch.w_contexts)
+      outputs.append(batch.responses)
       predictions.append(batch_predictions)
-    return predictions
+    inputs = flatten(inputs)
+    outputs = flatten(outputs)
+    predictions = flatten(predictions)
+    inputs = [[self.w_vocab.id2sent(u, join=True) for u in c] for c in inputs]
+    outputs = [self.w_vocab.id2sent(r, join=True) for r in outputs]
+    predictions = [[self.w_vocab.id2sent(r, join=True) for r in p] for p in predictions]
+    
+    return inputs, outputs, predictions
 

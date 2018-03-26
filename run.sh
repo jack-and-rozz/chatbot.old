@@ -15,7 +15,6 @@ source ./scripts/manually_getopt.sh $@
 if [ $argc -lt 2 ];then
     usage;
 fi
-
 bin_file=bins/wikiP2D.py
 checkpoint_path=${argv[0]}
 mode=${argv[1]}
@@ -35,11 +34,13 @@ if [ "${config_path}" = "" ]; then
 fi
 
 # Prioritize runtime options (parsed from 'scripts/manually_optget.sh')
-for i in $(seq 0 $(expr ${#opt_names[@]} - 1)); do
-    name=${opt_names[$i]}
-    value=${opt_values[$i]}
-    eval $name=$value
-done;
+if [ ${#opt_names[@]} != '0' ]; then
+    for i in $(seq 0 $(expr ${#opt_names[@]} - 1)); do
+	name=${opt_names[$i]}
+	value=${opt_values[$i]}
+	eval $name=$value
+    done;
+fi
 
 params=""
 for param in ${params_list[@]}; do 

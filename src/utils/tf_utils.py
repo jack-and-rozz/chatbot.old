@@ -1,4 +1,5 @@
 #coding: utf-8
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.client import device_lib
 from tensorflow.python.util import nest
@@ -12,6 +13,24 @@ _WEIGHTS_VARIABLE_NAME = "kernel"
 
 def shape(x, dim):
   return x.get_shape()[dim].value or tf.shape(x)[dim]
+
+def flatten(tensor, target_rank):
+  # Convert the rank of a tensor (>= target_rank) to target_rank.
+  # e.g. (tensor.get_shape() = [10, 5, 10, 100], target_rank=3) -> [50, 10, 100]
+
+  rank = len(tensor.get_shape())
+  prev_shape = [shape(tensor, i) for i in xrange(rank)]
+  assert rank >= target_rank
+  with tf.name_scope('flatten'):
+    if rank > target_rank:
+      flattened_dims = [shape(tensor, i) for i in xrange(rank-target_rank+1)]
+      #unchanged_dims = [shape(tensor, i) for i in xrange(target_rank, rank)]
+      unchanged_dims = [shape(tensor, rank-target_rank+1+i) for i in xrange(target_rank-1)]
+      flattened_shape = [np.prod(flattened_dims)] + unchanged_dims
+      flattened_tensor = tf.reshape(tensor, flattened_shape)
+    else:
+      flattened_tensor = tensor
+    return flattened_tensor, prev_shape
 
 def get_available_gpus():
     local_device_protos = device_lib.list_local_devices()
@@ -48,22 +67,22 @@ def linear(inputs, output_size,
     #if out_keep_prob is not None and out_keep_prob < 1.0:
     return outputs
 
-def cnn(inputs, filter_sizes=[3, 4, 5], num_filters=50):
+def cnn(inputs, filter_sizes=[3, 4, 5], num_filters=50, activation=tf.nn.relu):
   num_words = shape(inputs, 0)
   num_chars = shape(inputs, 1)
   input_size = shape(inputs, 2)
   outputs = []
   with tf.variable_scope('CNN'):
     for i, filter_size in enumerate(filter_sizes):
-    #with tf.variable_scope("conv_{}".format(i)):
       with tf.variable_scope("conv_width{}".format(filter_size)):
         w = tf.get_variable("w", [filter_size, input_size, num_filters])
         b = tf.get_variable("b", [num_filters])
       conv = tf.nn.conv1d(inputs, w, stride=1, padding="VALID") # [num_words, num_chars - filter_size, num_filters]
-      h = tf.nn.relu(tf.nn.bias_add(conv, b)) # [num_words, num_chars - filter_size, num_filters]
+      h = activation(tf.nn.bias_add(conv, b)) # [num_words, num_chars - filter_size, num_filters]
       pooled = tf.reduce_max(h, 1) # [num_words, num_filters]
       outputs.append(pooled)
   return tf.concat(outputs, 1) # [num_words, num_filters * len(filter_sizes)]
+  #return tf.reshape(tf.concat(outputs, 1), [num_words, num_filters * len(filter_sizes)])
 
 def ffnn(inputs, num_hidden_layers, hidden_size, output_size, dropout, output_weights_initializer=None):
   if len(inputs.get_shape()) > 2:

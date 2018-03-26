@@ -212,7 +212,8 @@ class WordVocabulary(WordVocabularyBase):
 class CharVocabulary(WordVocabulary):
   tokenizer_type = CharTokenizer
   def id2word(self, _ids):
-    return ''.join([WordVocabulary.id2word(self, _id) for _id in _ids])
+    chars = [WordVocabulary.id2word(self, _id) for _id in _ids]
+    return ''.join([c for c in chars if not c in UNDISPLAYED_TOKENS])
 
   def word2id(self, chars):
     '''
@@ -223,6 +224,77 @@ class CharVocabulary(WordVocabulary):
   def create_vocab(self, vocab_path, texts, vocab_size=0):
     texts = common.flatten([self.tokenizer.word2chars(word) for word in texts])
     return WordVocabulary.create_vocab(self, vocab_path, texts, vocab_size=vocab_size)
+
+
+class WordVocabularyWithEmbedding(WordVocabulary):
+  def __init__(self, vocab_path, skip_first=True,
+               vocab_size=0, lowercase=False, normalize_digits=True):
+    WordVocabularyBase.__init__(self)
+    self.tokenizer = self.tokenizer_type(lowercase=lowercase,
+                                         normalize_digits=normalize_digits)
+    self.vocab, self.rev_vocab, self.embeddings = self.init_vocab(
+      vocab_path, skip_first, vocab_size=vocab_size)
+    self.vocab_path = vocab_path
+
+  def init_vocab(self, vocab_path, skip_first, vocab_size=0):
+    sys.stderr.write('Loading word vocabulary from %s...\n' % vocab_path)
+    vocab, rev_vocab, embeddings = self.load_vocab(vocab_path, vocab_size=vocab_size, skip_first=skip_first)
+    _vocab_path = vocab_path + '.Wvocab%d' % vocab_size
+    if self.tokenizer.lowercase:
+      _vocab_path += '.lower'
+    if self.tokenizer.normalize_digits:
+      _vocab_path += '.normD'
+    assert len(set([len(vocab), len(rev_vocab), len(embeddings)])) == 1
+    if not os.path.exists(_vocab_path):
+      sys.stderr.write('Restoring word vocabulary to %s...\n' % _vocab_path)
+      self.save_vocab(rev_vocab, embeddings, _vocab_path)
+    return vocab, rev_vocab, embeddings
+
+  def save_vocab(self, rev_vocab, embeddings, vocab_path):
+    with open(vocab_path, 'w') as f:
+      for v, e in zip(rev_vocab, embeddings):
+        line = "%s %s\n" % (v, ' '.join([str(x) for x in e]))
+        line = line.encode('utf-8')
+        f.write(line)
+
+  def load_vocab(self, embedding_path, skip_first=True, vocab_size=0):
+    '''
+    Load pretrained vocabularies and embeddings.
+    '''
+    sys.stderr.write("Loading word embeddings from {}...\n".format(embedding_path))
+    
+    embedding_dict = collections.OrderedDict()
+    for s in START_VOCAB:
+      embedding_dict[s] = None
+
+    with open(embedding_path) as f:
+      for i, line in enumerate(f):
+        if skip_first and i == 0:
+          continue
+        if vocab_size and len(embedding_dict) >= vocab_size:
+          break
+        word_and_embedding = line.split()
+        word = self.tokenizer(word_and_embedding[0])
+        if len(word) != 1:
+          continue
+        else:
+          word = word[0]
+        embedding = [float(s) for s in word_and_embedding[1:]]
+        embedding_size = len(embedding)
+        if word not in embedding_dict:
+          embedding_dict[word] = embedding
+      sys.stderr.write("Done loading word embeddings.\n")
+    default_vector = [0.0 for _ in xrange(embedding_size)]
+    for s in START_VOCAB:
+      embedding_dict[s] = default_vector
+
+    rev_vocab = embedding_dict.keys()
+    embeddings = embedding_dict.values()
+    vocab = collections.OrderedDict()
+    for i,t in enumerate(rev_vocab):
+      vocab[t] = i
+    return vocab, rev_vocab, embeddings
+
 
 
 # class PredefinedVocabWithEmbeddingBase(object):
