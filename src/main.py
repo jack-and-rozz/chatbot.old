@@ -186,23 +186,23 @@ class Manager(object):
       config.batch_size, utterance_max_len=0, shuffle=False)
     if not in_training:
       sys.stderr.write('Start Decoding...\n')
-    res = model.test(batches)
+    res, epoch_time = model.test(batches)
     test_filename = '%s.%02d' % (test_filename, model.epoch.eval()) if in_training else '%s.best' % (test_filename)
     test_output_path = os.path.join(self.tests_path, test_filename)
 
     with open(test_output_path, 'w') as f:
       sys.stdout = f
-      for i, (context, response, prediction) in enumerate(zip(res)):
-        for j, c in context:
+      for i, (context, response, prediction) in enumerate(zip(*res)):
+        for j, c in enumerate(context):
           print '<%d-C%d>:\t%s' % (i, j, c)
         print '<%d-R>:\t%s' % (i, response)
-        for j, p in prediction:
+        for j, p in enumerate(prediction):
           print '<%d-P%d>:\t%s' % (i, j, p)
         print ''
       sys.stdout = sys.__stdout__
     if in_training:
       self.summary_writer.add_summary(summary, model.epoch.eval())
-    return df
+    #return df
 
   @common.timewatch()
   def create_model(self, sess, config,

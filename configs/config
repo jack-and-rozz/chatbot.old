@@ -10,7 +10,7 @@ decay_frequency = 100   #
 dropout_rate=0.2        # The dropout ratio in training. 
 train_embedding=true    # Whether to retrain the pretrained embeddings or not.
 teacher_forcing=false   # Whether to force the model to input the gold target labels in training regardless of the model's choice .
-batch_size=10          # Batch size.
+batch_size=64          # Batch size.
 
 # Structure.
 num_layers=1                       # The number of layers in MultiRNNCell.
@@ -31,17 +31,17 @@ dataset_info { # The train/valid/test dataset.
   }
   valid = {
     path = ${dataset_path}/valid.csv
-    max_lines = 0
+    max_lines = 20
   }
   test = {
     path = ${dataset_path}/test.csv
-    max_lines = 1
+    max_lines = 20
   }
 }
 
 # Text processing.
 utterance_max_len = 25
-context_max_len = 3
+context_max_len = 2
 word_max_len = 0
 lowercase=true          # Whether to convert words into lowercase or not.
 #cbase = true

@@ -6,7 +6,7 @@ from pprint import pprint
 
 import tensorflow as tf
 from utils.tf_utils import shape
-from utils.common import flatten
+from utils.common import flatten, timewatch
 from core.models import ModelBase, setup_cell
 from core.models.encoder import CharEncoder, WordEncoder, RNNEncoder, CNNEncoder
 from core.extensions.pointer import pointer_decoder 
@@ -214,15 +214,18 @@ class Seq2Seq(ModelBase):
         test_decoder_outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(
           decoder, 
           impute_finished=False,
+          maximum_iterations=config.utterance_max_len if config.utterance_max_len else None,
           scope=scope)
         self.predictions = test_decoder_outputs.predicted_ids
+        print test_decoder_outputs
           #FinalBeamDecoderOutput(predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose:0' shape=(?, ?, 3) dtype=int32>, beam_search_decoder_output=BeamSearchDecoderOutput(scores=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_1:0' shape=(?, ?, 3) dtype=float32>, predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_2:0' shape=(?, ?, 3) dtype=int32>, parent_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_3:0' shape=(?, ?, 3) dtype=int32>))
 
     with tf.name_scope('Loss'):
       self.loss = tf.contrib.seq2seq.sequence_loss(logits, targets, target_weights)
     self.updates = self.get_updates(self.loss)
     #self.debug = [decoder_inputs, decoder_outputs, logits, d_state, d_sequence_length, target_weights, decoder_lengths]
-    self.debug = [logits]
+    #self.debug = [logits]
+    self.debug = [self.predictions]
 
   def get_input_feed(self, batch, is_training):
     feed_dict = {
@@ -240,6 +243,7 @@ class Seq2Seq(ModelBase):
 
     return feed_dict
 
+  @timewatch()
   def train(self, data):
     loss = 0.0
     num_steps = 0
@@ -268,17 +272,23 @@ class Seq2Seq(ModelBase):
     loss /= num_steps
     return loss, epoch_time
 
+  @timewatch()
   def test(self, data):
     inputs = []
     outputs = []
     predictions = []
+    num_steps = 0
+    epoch_time = 0.0
     for i, batch in enumerate(data):
       feed_dict = self.get_input_feed(batch, False)
       # for x,resx in zip(self.debug, self.sess.run(self.debug, feed_dict)):
-      #   print x
-      #   print resx.shape
+      #    print x
+      #    print resx.shape
       # exit(1)
-      predictions = self.sess.run(self.predictions, feed_dict)
+      t = time.time()
+      batch_predictions = self.sess.run(self.predictions, feed_dict)
+      epoch_time += time.time() - t
+      num_steps += 1
       inputs.append(batch.w_contexts)
       outputs.append(batch.responses)
       predictions.append(batch_predictions)
@@ -287,7 +297,8 @@ class Seq2Seq(ModelBase):
     predictions = flatten(predictions)
     inputs = [[self.w_vocab.id2sent(u, join=True) for u in c] for c in inputs]
     outputs = [self.w_vocab.id2sent(r, join=True) for r in outputs]
-    predictions = [[self.w_vocab.id2sent(r, join=True) for r in p] for p in predictions]
+    # [batch_size, utterance_max_len, beam_width] - > [batch_size, beam_width, utterance_max_len]
+    predictions = [[self.w_vocab.id2sent(r, join=True) for r in zip(*p)] for p in predictions] 
     
-    return inputs, outputs, predictions
+    return (inputs, outputs, predictions), epoch_time
 
