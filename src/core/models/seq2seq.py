@@ -190,16 +190,17 @@ class Seq2Seq(ModelBase):
       with tf.name_scope('Training'):
         num_units = shape(encoder_state, -1)
         attention_states = encoder_outputs
+
         attention = tf.contrib.seq2seq.LuongAttention(
           num_units, attention_states,
           memory_sequence_length=dial_lengths)
-        decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+        train_decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
           decoder_cell, attention)
 
         # encoder_state can't be directly copied into decoder_cell when using the attention mechanisms, initial_state must be an instance of AttentionWrapperState. (https://github.com/tensorflow/nmt/issues/205)
-        decoder_initial_state = decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=encoder_state)
+        decoder_initial_state = train_decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=encoder_state)
         decoder = tf.contrib.seq2seq.BasicDecoder(
-          decoder_cell, helper, decoder_initial_state,
+          train_decoder_cell, helper, decoder_initial_state,
           output_layer=projection_layer)
           
         train_decoder_outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(
@@ -210,34 +211,18 @@ class Seq2Seq(ModelBase):
         logits = train_decoder_outputs.rnn_output
 
       with tf.name_scope('Test'):
-        num_units = shape(encoder_state, -1)
         attention = tf.contrib.seq2seq.LuongAttention(
           num_units, 
-          attention_states,
-          memory_sequence_length=dial_lengths)
-          # tf.contrib.seq2seq.tile_batch(attention_states, 
-          #                               multiplier=config.beam_width),
-          # memory_sequence_length=tf.contrib.seq2seq.tile_batch(
-          #   dial_lengths, multiplier=config.beam_width))
-        # print 1,tf.contrib.seq2seq.tile_batch(attention_states, 
-        #                                     multiplier=config.beam_width)
-        # print 2,tf.contrib.seq2seq.tile_batch(
-        #     dial_lengths, multiplier=config.beam_width)
-        
-        decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+          tf.contrib.seq2seq.tile_batch(
+            attention_states, multiplier=config.beam_width),
+          memory_sequence_length=tf.contrib.seq2seq.tile_batch(
+            dial_lengths, multiplier=config.beam_width))
+        test_decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
           decoder_cell, attention)
 
-        # print 3,decoder_cell.zero_state(batch_size, tf.float32)
-        # print 4, decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=config.beam_width))
-
-        #decoder_initial_state = decoder_cell.zero_state(batch_size*config.beam_width, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=config.beam_width))
-        decoder_initial_state = decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=config.beam_width))
-        #self.debug = [encoder_state, decoder_initial_state]
-        #print encoder_state
-        #print decoder_initial_state
-        #exit(1)
+        decoder_initial_state = test_decoder_cell.zero_state(batch_size*config.beam_width, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=config.beam_width))
         decoder = tf.contrib.seq2seq.BeamSearchDecoder(
-          decoder_cell, w_embeddings, start_tokens, end_token, 
+          test_decoder_cell, w_embeddings, start_tokens, end_token, 
           decoder_initial_state,
           config.beam_width, 
           output_layer=projection_layer)
@@ -304,10 +289,10 @@ class Seq2Seq(ModelBase):
     predictions = []
     for i, batch in enumerate(data):
       feed_dict = self.get_input_feed(batch, False)
-      for x,resx in zip(self.debug, self.sess.run(self.debug, feed_dict)):
-        print x
-        print resx.shape
-      exit(1)
+      # for x,resx in zip(self.debug, self.sess.run(self.debug, feed_dict)):
+      #   print x
+      #   print resx.shape
+      # exit(1)
       predictions = self.sess.run(self.predictions, feed_dict)
       inputs.append(batch.w_contexts)
       outputs.append(batch.responses)
