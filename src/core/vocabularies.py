@@ -19,9 +19,10 @@ PAD_ID = 0
 BOS_ID = 1
 EOS_ID = 2
 UNK_ID = 3
+NUM_ID = 4 
 
 _DIGIT_RE = re.compile(r"\d")
-START_VOCAB = [_PAD, _BOS, _EOS, _UNK]
+START_VOCAB = [_PAD, _BOS, _EOS, _UNK, _NUM]
 UNDISPLAYED_TOKENS = [_PAD, _BOS, _EOS]
 
 def separate_numbers(sent):
@@ -62,10 +63,12 @@ class WordTokenizer(object):
       sent = separate_symbols(sent)
     normalize_digits = normalize_digits if normalize_digits is not None else self.normalize_digits
     lowercase = lowercase if lowercase is not None else self.lowercase
-    if normalize_digits:
-      sent = re.sub(_DIGIT_RE, "0", sent) 
     if lowercase:
       sent = sent.lower()
+    if normalize_digits:
+      sent = re.sub(_DIGIT_RE, "0", sent) 
+      for m in sorted(re.findall("0+", sent), key=lambda x: -len(x)):
+        sent = sent.replace(m, _NUM)
     if type(sent) == str:
       sent = sent.decode('utf-8')
     return self.word_tokenize(sent)
@@ -106,7 +109,8 @@ class WordVocabularyBase(VocabularyBase):
     if not type(_id) in [int, np.int32]:
       raise ValueError('ID must be an integer but %s' % str(type(_id)))
     elif _id < 0 or _id > len(self.rev_vocab):
-      raise ValueError('Token ID must be an integer between 0 and %d (ID=%d)' % (len(self.rev_vocab), _id))
+      return ''
+      #raise ValueError('Token ID must be an integer between 0 and %d (ID=%d)' % (len(self.rev_vocab), _id))
     # elif _id in set([PAD_ID, EOS_ID, BOS_ID]):
     #   return None
     else:
@@ -118,7 +122,7 @@ class WordVocabularyBase(VocabularyBase):
     link_span : a tuple of the indices between the start and the end of a link.
     '''
     def _id2sent(ids, link_span):
-      sent_tokens = [self.id2word(word_id) for word_id in ids]
+      sent_tokens = [self.id2word(word_id) for word_id in ids if self.id2word(word_id)]
       if link_span:
         for i in xrange(link_span[0], link_span[1]+1):
           sent_tokens[i] = common.colored(sent_tokens[i], 'link')

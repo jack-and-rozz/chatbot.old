@@ -4,7 +4,7 @@ import numpy as np
 import sys, re, random, itertools, os
 import pandas as pd
 from collections import OrderedDict, Counter
-from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _NUM,  WordVocabulary, CharVocabulary
+from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _UNK, UNK_ID,  WordVocabulary, CharVocabulary
 from utils import common
 from core.datasets.base import DatasetBase, PackedDatasetBase, _EOU, _EOT, _URL, _FILEPATH
 
@@ -73,15 +73,6 @@ class _DailyDialogDataset(DatasetBase):
 
   @classmethod
   def preprocess_dialogue(self, line, context_max_len=0, split_turn=True):
-    #idx, dialogue, 
-    idx, dialogue, act, emotion, topic = line
-    #print dialogue
-    dialogue = [self.preprocess_turn(x.strip(), False) 
-                for x in dialogue.split(_EOU) if x.strip()]
-    # print dialogue
-    # print act
-    # print emotion
-
     idx, dialogue, act, emotion, topic = line
     dialogue = [self.preprocess_turn(x.strip(), split_turn) 
                 for x in dialogue.split(_EOU) if x.strip()]
@@ -107,25 +98,51 @@ class _DailyDialogDataset(DatasetBase):
       return None
   @classmethod
   def preprocess_turn(self, turn, split_turn):
+    turn = turn.replace('...', '.')
     if split_turn:
-      turn = [self.preprocess_utterance(uttr) for uttr in turn.split(' . ')]
-      if len(turn) > 1:
-        turn = [x + ' .' for x in turn[:len(turn)-1]] + [turn[-1]]
+      split_tokens = ['.', '?', '!']
+      for st in split_tokens:
+        #turn = common.flatten([u.split(' ' + st) for u in turn])
+        turn = turn.split(' ' + st)
+        turn = [u + ' ' + st for u in turn[:len(turn)-1]] + [turn[-1]]
+        turn = (" " + _EOU + " ").join(turn)
+      turn = turn.split(_EOU)
     else:
-      turn = [self.preprocess_utterance(turn)]
+      turn = [turn]
+    turn = [self.preprocess_utterance(u.strip()) for u in turn if u.strip()]
     return turn
 
   @classmethod
   def preprocess_utterance(self, uttr):
+    # Make the way of tokenization equivalent to that of the pretrained embeddings.
+    replacements = [
+      ("’", "'"),
+      ("'", " ' "),
+      (".", " . "),
+      ("-", " - ")
+    ]
+    for x, y in replacements:
+      uttr = uttr.replace(x, y)
+    
     return uttr
 
   @property
   def size(self):
     if not self.load:
       return None
-    else:
-      return len(self.original.responses)
-    
+    return len(self.original.responses)
+
+  @property
+  def oov_rate(self):
+    if not self.load:
+      return None
+    context_tokens = common.flatten(self.symbolized.w_contexts, depth=2)
+    response_tokens = common.flatten(self.symbolized.responses)
+    context_tokens = Counter(context_tokens)
+    response_tokens = Counter(response_tokens)
+    context_unk_rate = 1.0 * context_tokens[UNK_ID] / sum(context_tokens.values())
+    response_unk_rate = 1.0 * response_tokens[UNK_ID] / sum(response_tokens.values())
+    return context_unk_rate, response_unk_rate
 
   def load_data(self):
     sys.stderr.write('Loading dataset from %s ...\n' % (self.path))
@@ -175,13 +192,13 @@ class _DailyDialogDataset(DatasetBase):
     w_contexts = self.symbolized.w_contexts 
     c_contexts = self.symbolized.c_contexts if self.cbase else [None for _ in xrange(len(responses))]
     speaker_changes = self.speaker_changes
-    data = [tuple(x) for x in zip(w_contexts, c_contexts, responses, speaker_changes)]
+    data = [tuple(x) for x in zip(w_contexts, c_contexts, responses, speaker_changes, self.original.w_contexts, self.original.responses)]
     if shuffle: # For training.
       random.shuffle(data)
     for i, b in itertools.groupby(enumerate(data), 
                                   lambda x: x[0] // (batch_size)):
       batch = [x[1] for x in b]
-      w_contexts, c_contexts, responses, speaker_changes = zip(*batch)
+      w_contexts, c_contexts, responses, speaker_changes, ori_w_contexts, ori_responses = zip(*batch)
 
       # Set the maximum length in the batch as *_max_len if it is not given.
       if self.wbase:
@@ -204,6 +221,8 @@ class _DailyDialogDataset(DatasetBase):
         speaker_changes, maxlen=self.context_max_len,
         padding='post', truncating='post', value=PAD_ID)
       yield common.dotDict({
+        'ori_w_contexts': ori_w_contexts,
+        'ori_responses': ori_responses,
         'w_contexts': w_contexts,
         'c_contexts': c_contexts,
         'responses': responses,
