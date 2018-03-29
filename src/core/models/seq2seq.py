@@ -132,11 +132,14 @@ class Seq2Seq(ModelBase):
         uttr_encoder_type = getattr(encoder, config.uttr_encoder_type)
         uttr_encoder = uttr_encoder_type(config, self.keep_prob, 
                                          shared_scope=scope)
-        print word_repls
-        uttr_repls, utter_state = uttr_encoder.encode(word_repls, uttr_lengths)
-        print uttr_repls
-        print utter_state
-        exit(1)
+        uttr_repls, _ = uttr_encoder.encode(word_repls, uttr_lengths)
+        if len(uttr_repls.get_shape()) == 4:
+          '''
+          Use the last state of each utterance encoded by RNN.
+          [batch_size, context_len, uttr_len, hidden_size]
+          -> [batch_size, context_len, hidden_size] 
+          '''
+          uttr_repls = uttr_repls[:, :, -1, :] 
 
         # Concatenate the feature_embeddings with each utterance representations.
         uttr_repls = tf.concat([uttr_repls, speaker_changes], axis=-1)
@@ -146,7 +149,7 @@ class Seq2Seq(ModelBase):
         dial_encoder = dial_encoder_type(config, self.keep_prob, 
                                          shared_scope=scope)
         encoder_outputs, encoder_state = dial_encoder.encode(
-          utter_repls, dial_lengths)
+          uttr_repls, dial_lengths)
 
     ## Decoder
     with tf.variable_scope('Decoder') as scope:

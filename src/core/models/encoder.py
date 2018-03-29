@@ -78,11 +78,12 @@ class RNNEncoder(object):
   def encode(self, inputs, sequence_length):
     with tf.variable_scope(self.shared_scope or "RNNEncoder") as scope:
       # TODO: flatten the tensor with rank >= 4 to rank 3 tensor.
-      inputs, prev_shape = flatten(inputs, 3) # [*, max_sequence_length, hidden_size]
-      print 'prev_shape',prev_shape
-      output_shape = prev_shape[:-2] + [self.rnn_size]
       sequence_length, _ = flatten(sequence_length, 1)
-
+      inputs, prev_shape = flatten(inputs, 3) # [*, max_sequence_length, hidden_size]
+      output_shape = prev_shape[:-1] + [self.rnn_size]
+      state_shape = prev_shape[:-2] + [self.rnn_size]
+      print 'os',output_shape
+      print 'ss', state_shape
       if self.cell_bw is not None:
         outputs, state = tf.nn.bidirectional_dynamic_rnn(
           self.cell_fw, self.cell_bw, inputs,
@@ -101,4 +102,5 @@ class RNNEncoder(object):
           self.cell_fw, inputs,
           sequence_length=sequence_length, dtype=tf.float32, scope=scope)
       outputs = tf.reshape(outputs, output_shape)
+      state = tf.reshape(state, state_shape)
     return outputs, state
