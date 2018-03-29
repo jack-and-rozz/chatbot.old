@@ -30,10 +30,10 @@ class CNNEncoder(object):
     with tf.variable_scope(self.shared_scope or "CNNEncoder"):
       target_rank = 3 # [*, max_sequence_length, hidden_size]
       flattened_inputs, prev_shape = flatten(inputs, target_rank)
-      flattened_aggregated_inputs = cnn(flattened_inputs, 
+      flattened_aggregated_outputs = cnn(flattened_outputs, 
                                         activation=self.activation)
-      target_shape = prev_shape[:-2] + [shape(flattened_aggregated_inputs, -1)]
-      outputs = tf.reshape(flattened_aggregated_inputs, target_shape)
+      target_shape = prev_shape[:-2] + [shape(flattened_aggregated_outputs, -1)]
+      outputs = tf.reshape(flattened_aggregated_outputs, target_shape)
     outputs = tf.nn.dropout(outputs, self.keep_prob) 
     return outputs, outputs
 CharEncoder = CNNEncoder
@@ -78,8 +78,11 @@ class RNNEncoder(object):
   def encode(self, inputs, sequence_length):
     with tf.variable_scope(self.shared_scope or "RNNEncoder") as scope:
       # TODO: flatten the tensor with rank >= 4 to rank 3 tensor.
-      target_rank = 3 # [*, max_sequence_length, hidden_size]
-      flattened_inputs, prev_shape = flatten(inputs, target_rank)
+      inputs, prev_shape = flatten(inputs, 3) # [*, max_sequence_length, hidden_size]
+      print 'prev_shape',prev_shape
+      output_shape = prev_shape[:-2] + [self.rnn_size]
+      sequence_length, _ = flatten(sequence_length, 1)
+
       if self.cell_bw is not None:
         outputs, state = tf.nn.bidirectional_dynamic_rnn(
           self.cell_fw, self.cell_bw, inputs,
@@ -91,9 +94,11 @@ class RNNEncoder(object):
 
         with tf.variable_scope("state"):
           state = merge_state(state)
+          print 'state', state
           state = linear(state, self.rnn_size)
       else:
         outputs, state = tf.nn.dynamic_rnn(
           self.cell_fw, inputs,
           sequence_length=sequence_length, dtype=tf.float32, scope=scope)
+      outputs = tf.reshape(outputs, output_shape)
     return outputs, state

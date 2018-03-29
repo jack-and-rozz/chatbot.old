@@ -133,8 +133,9 @@ class Seq2Seq(ModelBase):
         uttr_encoder = uttr_encoder_type(config, self.keep_prob, 
                                          shared_scope=scope)
         print word_repls
-        uttr_repls, _ = uttr_encoder.encode(word_repls, uttr_lengths)
+        uttr_repls, utter_state = uttr_encoder.encode(word_repls, uttr_lengths)
         print uttr_repls
+        print utter_state
         exit(1)
 
         # Concatenate the feature_embeddings with each utterance representations.
