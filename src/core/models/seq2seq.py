@@ -7,8 +7,9 @@ from pprint import pprint
 import tensorflow as tf
 from utils.tf_utils import shape
 from utils.common import flatten, timewatch
-from core.models import ModelBase, setup_cell
+from core.models.base import ModelBase, setup_cell
 from core.models.encoder import CharEncoder, WordEncoder, RNNEncoder, CNNEncoder
+from core.models import encoder
 from core.extensions.pointer import pointer_decoder 
 from core.vocabularies import BOS_ID, PAD_ID
 
@@ -76,7 +77,7 @@ class Seq2Seq(ModelBase):
 
     with tf.name_scope('batch_size'):
       batch_size = shape(self.e_inputs_w_ph, 0)
-      
+
     with tf.variable_scope('Embeddings') as scope:
       if w_vocab.embeddings:
         initializer = tf.constant_initializer(w_vocab.embeddings) 
@@ -108,6 +109,11 @@ class Seq2Seq(ModelBase):
     with tf.variable_scope('Encoder', reuse=tf.AUTO_REUSE):
       assert self.w_vocab or self.c_vocab
       word_repls = []
+
+      # Count the length of each dialogue, utterance, (word).
+      uttr_lengths = tf.count_nonzero(self.e_inputs_w_ph, axis=2, dtype=tf.int32)
+      dial_lengths = tf.count_nonzero(uttr_lengths, axis=1, dtype=tf.int32)
+
       with tf.variable_scope('Word') as scope:
         w_inputs = tf.nn.embedding_lookup(w_embeddings, self.e_inputs_w_ph)
         word_encoder = WordEncoder(self.keep_prob, shared_scope=scope)
@@ -122,23 +128,24 @@ class Seq2Seq(ModelBase):
       self.word_repls = word_repls = tf.concat(word_repls, axis=-1) # [batch_size, context_len, utterance_len, word_emb_size + cnn_output_size]
 
 
-      with tf.variable_scope('Sentence') as scope:
-        sent_encoder = CNNEncoder(self.keep_prob, shared_scope=scope)
-        sent_repls = sent_encoder.encode(word_repls)
-        # sent_encoder = RNNEncoder(config, self.keep_prob, 
-        #                                shared_scope=scope)
-        # e_inputs_w_length = tf.count_nonzero(self.e_inputs_w_ph, axis=1)
-        # e_outputs, e_state = sent_encoder.encode(word_repls, e_inputs_w_length)
+      with tf.variable_scope('Utterance') as scope:
+        uttr_encoder_type = getattr(encoder, config.uttr_encoder_type)
+        uttr_encoder = uttr_encoder_type(config, self.keep_prob, 
+                                         shared_scope=scope)
+        print word_repls
+        uttr_repls, _ = uttr_encoder.encode(word_repls, uttr_lengths)
+        print uttr_repls
+        exit(1)
 
-        # Concatenate the feature_embeddings with eac sentence representations.
-        sent_repls = tf.concat([sent_repls, speaker_changes], axis=-1)
+        # Concatenate the feature_embeddings with each utterance representations.
+        uttr_repls = tf.concat([uttr_repls, speaker_changes], axis=-1)
 
       with tf.variable_scope('Dialogue') as scope:
-        dial_encoder = RNNEncoder(config, self.keep_prob, shared_scope=scope)
-        # Count the length of each dialogue, utterance, (word).
-        sent_lengths = tf.count_nonzero(self.e_inputs_w_ph, axis=2, dtype=tf.int32)
-        dial_lengths = tf.count_nonzero(sent_lengths, axis=1, dtype=tf.int32)
-        encoder_outputs, encoder_state = dial_encoder.encode(sent_repls, dial_lengths)
+        dial_encoder_type = getattr(encoder, config.uttr_encoder_type)
+        dial_encoder = dial_encoder_type(config, self.keep_prob, 
+                                         shared_scope=scope)
+        encoder_outputs, encoder_state = dial_encoder.encode(
+          utter_repls, dial_lengths)
 
     ## Decoder
     with tf.variable_scope('Decoder') as scope:
@@ -173,15 +180,13 @@ class Seq2Seq(ModelBase):
 
       decoder_cell = setup_cell(config.cell_type, config.rnn_size, 
                                 config.num_layers,keep_prob=self.keep_prob)
-      projection_layer = tf.layers.Dense(
-        self.w_vocab.size,
-        use_bias=True, trainable=True) 
+      projection_layer = tf.layers.Dense(config.w_vocab_size,
+                                         use_bias=True, trainable=True)
 
-      attention_states = encoder_outputs
       encoder_input_length = dial_lengths
+      attention_states = encoder_outputs
       num_units = shape(attention_states, -1)
       with tf.name_scope('Training'):
-
         attention = tf.contrib.seq2seq.LuongAttention(
           num_units, attention_states,
           memory_sequence_length=encoder_input_length)
@@ -222,7 +227,6 @@ class Seq2Seq(ModelBase):
           decoder, impute_finished=False,
           maximum_iterations=config.utterance_max_len, scope=scope)
         self.predictions = test_decoder_outputs.predicted_ids
-        print test_decoder_outputs
           #FinalBeamDecoderOutput(predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose:0' shape=(?, ?, 3) dtype=int32>, beam_search_decoder_output=BeamSearchDecoderOutput(scores=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_1:0' shape=(?, ?, 3) dtype=float32>, predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_2:0' shape=(?, ?, 3) dtype=int32>, parent_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_3:0' shape=(?, ?, 3) dtype=int32>))
 
     with tf.name_scope('Loss'):
@@ -285,6 +289,7 @@ class Seq2Seq(ModelBase):
   def test(self, data):
     inputs = []
     outputs = []
+    speaker_changes = []
     predictions = []
     num_steps = 0
     epoch_time = 0.0
@@ -300,13 +305,15 @@ class Seq2Seq(ModelBase):
       num_steps += 1
       inputs.append(batch.w_contexts)
       outputs.append(batch.responses)
+      speaker_changes.append(batch.speaker_changes)
       predictions.append(batch_predictions)
     inputs = flatten(inputs)
     outputs = flatten(outputs)
+    speaker_changes = flatten(speaker_changes)
     predictions = flatten(predictions)
     inputs = [[self.w_vocab.id2sent(u, join=True) for u in c] for c in inputs]
     outputs = [self.w_vocab.id2sent(r, join=True) for r in outputs]
     # [batch_size, utterance_max_len, beam_width] - > [batch_size, beam_width, utterance_max_len]
     predictions = [[self.w_vocab.id2sent(r, join=True) for r in zip(*p)] for p in predictions] 
-    return (inputs, outputs, predictions), epoch_time
+    return (inputs, outputs, speaker_changes, predictions), epoch_time
 

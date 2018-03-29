@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.rnn import LSTMStateTuple
 from tensorflow.python.util import nest
-from core.models import setup_cell
+from core.models.base import setup_cell
 from utils.tf_utils import linear, shape, cnn, flatten
 
 def merge_state(state):
@@ -17,7 +17,7 @@ def merge_state(state):
   return state
 
 class CNNEncoder(object):
-  def __init__(self, keep_prob,
+  def __init__(self, config, keep_prob,
                activation=tf.nn.relu, shared_scope=None):
     self.keep_prob = keep_prob
     self.shared_scope = shared_scope
@@ -26,7 +26,7 @@ class CNNEncoder(object):
   def __call__(self, *args, **kwargs):
     return self.encode(*args, **kwargs)
 
-  def encode(self, inputs):
+  def encode(self, inputs, sequence_length):
     with tf.variable_scope(self.shared_scope or "CNNEncoder"):
       target_rank = 3 # [*, max_sequence_length, hidden_size]
       flattened_inputs, prev_shape = flatten(inputs, target_rank)
@@ -34,7 +34,8 @@ class CNNEncoder(object):
                                         activation=self.activation)
       target_shape = prev_shape[:-2] + [shape(flattened_aggregated_inputs, -1)]
       outputs = tf.reshape(flattened_aggregated_inputs, target_shape)
-    return tf.nn.dropout(outputs, self.keep_prob) 
+    outputs = tf.nn.dropout(outputs, self.keep_prob) 
+    return outputs, outputs
 CharEncoder = CNNEncoder
 
 class WordEncoder(object):
@@ -49,7 +50,8 @@ class WordEncoder(object):
     outputs = []
     with tf.variable_scope(self.shared_scope or "WordEncoder"):
       outputs = inputs
-    return tf.nn.dropout(outputs, self.keep_prob) 
+    outputs = tf.nn.dropout(outputs, self.keep_prob) 
+    return outputs
 
 class RNNEncoder(object):
   def __init__(self, config, keep_prob,
@@ -75,6 +77,9 @@ class RNNEncoder(object):
 
   def encode(self, inputs, sequence_length):
     with tf.variable_scope(self.shared_scope or "RNNEncoder") as scope:
+      # TODO: flatten the tensor with rank >= 4 to rank 3 tensor.
+      target_rank = 3 # [*, max_sequence_length, hidden_size]
+      flattened_inputs, prev_shape = flatten(inputs, target_rank)
       if self.cell_bw is not None:
         outputs, state = tf.nn.bidirectional_dynamic_rnn(
           self.cell_fw, self.cell_bw, inputs,
