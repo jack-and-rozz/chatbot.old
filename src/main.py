@@ -214,6 +214,8 @@ class Manager(object):
     if not in_training:
       sys.stderr.write('Start Decoding...\n')
     res, epoch_time = model.test(batches)
+    self.logger.info('(Epoch %d) Test score: - (%.3f sec)' % (epoch_time))
+
     test_filename = '%s.%02d' % (test_filename, model.epoch.eval()) if in_training else '%s.best' % (test_filename)
     test_output_path = os.path.join(self.tests_path, test_filename)
 

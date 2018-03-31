@@ -1,3 +1,4 @@
+
 #coding: utf-8
 import numpy as np
 import tensorflow as tf
@@ -40,7 +41,7 @@ def make_summary(value_dict):
   return tf.Summary(value=[tf.Summary.Value(tag=k, simple_value=v) for k,v in value_dict.items()])
 
 def linear(inputs, output_size,
-           activation=tf.nn.tanh, scope=None):
+           activation=tf.nn.relu, scope=None):
   """
   Args:
     inputs : Rank 2 or 3 Tensor of shape [batch_size, (sequence_size,) hidden_size].

@@ -6,7 +6,9 @@ def setup_cell(cell_type, size, num_layers, keep_prob=None):
   def _get_single_cell():
     cell = getattr(tf.contrib.rnn, cell_type)(size)
     if keep_prob is not None:
-      cell = tf.contrib.rnn.DropoutWrapper(cell, output_keep_prob=keep_prob)
+      cell = tf.contrib.rnn.DropoutWrapper(cell, 
+                                           input_keep_prob=1.0,
+                                           output_keep_prob=keep_prob)
     return cell
 
   if num_layers > 1:
