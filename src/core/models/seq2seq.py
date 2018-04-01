@@ -131,8 +131,9 @@ class Seq2Seq(ModelBase):
 
 
       with tf.variable_scope('Utterance') as scope:
-        uttr_encoder_type = getattr(encoder, config.uttr_encoder_type)
-        uttr_encoder = uttr_encoder_type(config, self.keep_prob, 
+        encoder_type = getattr(encoder, config.encoder.utterance.encoder_type)
+        uttr_encoder = encoder_type(config.encoder.utterance, 
+                                         self.keep_prob, 
                                          shared_scope=scope)
         uttr_repls, _ = uttr_encoder.encode(word_repls, uttr_lengths)
         if len(uttr_repls.get_shape()) == 4:
@@ -147,9 +148,10 @@ class Seq2Seq(ModelBase):
         uttr_repls = tf.concat([uttr_repls, speaker_changes], axis=-1)
 
       with tf.variable_scope('Dialogue') as scope:
-        dial_encoder_type = getattr(encoder, config.uttr_encoder_type)
-        dial_encoder = dial_encoder_type(config, self.keep_prob, 
-                                         shared_scope=scope)
+        encoder_type = getattr(encoder, config.encoder.context.encoder_type)
+        dial_encoder = encoder_type(config.encoder.context, 
+                                    self.keep_prob, 
+                                    shared_scope=scope)
         encoder_outputs, encoder_state = dial_encoder.encode(
           uttr_repls, context_lengths)
 
@@ -179,13 +181,12 @@ class Seq2Seq(ModelBase):
 
 
       decoder_inputs_emb = tf.nn.embedding_lookup(w_embeddings, decoder_inputs)
-      helper = tf.contrib.seq2seq.TrainingHelper(
-        decoder_inputs_emb, sequence_length=target_length, time_major=False)
-      
       # TODO: 多言語対応にする時はbias, trainableをfalseにしてembeddingをconstantにしたい
 
-      decoder_cell = setup_cell(config.cell_type, config.rnn_size, 
-                                config.num_layers,keep_prob=self.keep_prob)
+      decoder_cell = setup_cell(config.decoder.cell_type, 
+                                config.decoder.output_size, 
+                                config.decoder.num_layers,
+                                keep_prob=self.keep_prob)
       projection_layer = tf.layers.Dense(config.w_vocab_size,
                                          use_bias=True, trainable=True)
 
@@ -193,15 +194,24 @@ class Seq2Seq(ModelBase):
       attention_states = encoder_outputs
       decoder_state = encoder_state
       num_units = shape(attention_states, -1)
+
       with tf.name_scope('Training'):
-        attention = tf.contrib.seq2seq.LuongAttention(
-          num_units, attention_states,
-          memory_sequence_length=encoder_input_length)
-        train_decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
-          decoder_cell, attention)
+        if config.attention_type:
+          attention = tf.contrib.seq2seq.LuongAttention(
+            num_units, attention_states,
+            memory_sequence_length=encoder_input_length)
+          train_decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+            decoder_cell, attention)
+          decoder_initial_state = train_decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=decoder_state)
+        else:
+          train_decoder_cell = decoder_cell
+          decoder_initial_state = decoder_state
 
         # encoder_state can't be directly copied into decoder_cell when using the attention mechanisms, initial_state must be an instance of AttentionWrapperState. (https://github.com/tensorflow/nmt/issues/205)
-        decoder_initial_state = train_decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=decoder_state)
+
+        helper = tf.contrib.seq2seq.TrainingHelper(
+          decoder_inputs_emb, sequence_length=target_length, time_major=False)
+
         decoder = tf.contrib.seq2seq.BasicDecoder(
           train_decoder_cell, helper, decoder_initial_state,
           output_layer=projection_layer)
@@ -215,16 +225,21 @@ class Seq2Seq(ModelBase):
 
       with tf.name_scope('Test'):
         beam_width = config.beam_width
-        attention = tf.contrib.seq2seq.LuongAttention(
-          num_units, 
-          tf.contrib.seq2seq.tile_batch(
-            attention_states, multiplier=beam_width),
-          memory_sequence_length=tf.contrib.seq2seq.tile_batch(
-            encoder_input_length, multiplier=beam_width))
-        test_decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
-          decoder_cell, attention)
+        if config.attention_type:
+          attention = tf.contrib.seq2seq.LuongAttention(
+            num_units, 
+            tf.contrib.seq2seq.tile_batch(
+              attention_states, multiplier=beam_width),
+            memory_sequence_length=tf.contrib.seq2seq.tile_batch(
+              encoder_input_length, multiplier=beam_width))
+          test_decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+            decoder_cell, attention)
+          decoder_initial_state = test_decoder_cell.zero_state(batch_size*beam_width, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=beam_width))
+        else:
+          test_decoder_cell = decoder_cell
+          decoder_initial_state = tf.contrib.seq2seq.tile_batch(
+            encoder_state, multiplier=beam_width)
 
-        decoder_initial_state = test_decoder_cell.zero_state(batch_size*beam_width, tf.float32).clone(cell_state=tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=beam_width))
         decoder = tf.contrib.seq2seq.BeamSearchDecoder(
           test_decoder_cell, w_embeddings, start_tokens, end_token, 
           decoder_initial_state,

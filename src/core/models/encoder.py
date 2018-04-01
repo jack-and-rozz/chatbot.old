@@ -56,15 +56,14 @@ class WordEncoder(object):
 class RNNEncoder(object):
   def __init__(self, config, keep_prob,
                activation=tf.nn.relu, shared_scope=None):
-    self.rnn_size = config.rnn_size
     self.keep_prob = keep_prob
     self.activation = activation
     self.shared_scope = shared_scope
-    self.rnn_size = config.rnn_size
+    self.output_size = config.output_size
     self.cell_type = config.cell_type
     self.num_layers = config.num_layers
     with tf.variable_scope('fw_cell', reuse=tf.get_variable_scope().reuse):
-      self.cell_fw = setup_cell(self.cell_type, self.rnn_size, 
+      self.cell_fw = setup_cell(self.cell_type, self.output_size, 
                                 num_layers=self.num_layers, 
                                 keep_prob=self.keep_prob)
 
@@ -77,8 +76,8 @@ class RNNEncoder(object):
       # TODO: flatten the tensor with rank >= 4 to rank 3 tensor.
       sequence_length, _ = flatten(sequence_length, 1)
       inputs, prev_shape = flatten(inputs, 3) # [*, max_sequence_length, hidden_size]
-      output_shape = prev_shape[:-1] + [self.rnn_size]
-      state_shape = prev_shape[:-2] + [self.rnn_size]
+      output_shape = prev_shape[:-1] + [self.output_size]
+      state_shape = prev_shape[:-2] + [self.output_size]
       outputs, state = tf.nn.dynamic_rnn(
         self.cell_fw, inputs,
         sequence_length=sequence_length, dtype=tf.float32, scope=scope)
@@ -92,7 +91,7 @@ class BidirectionalRNNEncoder(RNNEncoder):
     RNNEncoder.__init__(self, *args, **kwargs)
     with tf.variable_scope('bw_cell', reuse=tf.get_variable_scope().reuse):
       self.cell_bw = setup_cell(
-        self.cell_type, self.rnn_size, 
+        self.cell_type, self.output_size, 
         num_layers=self.num_layers, keep_prob=self.keep_prob
       ) 
 
@@ -102,20 +101,20 @@ class BidirectionalRNNEncoder(RNNEncoder):
       # TODO: flatten the tensor with rank >= 4 to rank 3 tensor.
       sequence_length, _ = flatten(sequence_length, 1)
       inputs, prev_shape = flatten(inputs, 3) # [*, max_sequence_length, hidden_size]
-      output_shape = prev_shape[:-1] + [self.rnn_size]
-      state_shape = prev_shape[:-2] + [self.rnn_size]
+      output_shape = prev_shape[:-1] + [self.output_size]
+      state_shape = prev_shape[:-2] + [self.output_size]
 
       outputs, state = tf.nn.bidirectional_dynamic_rnn(
         self.cell_fw, self.cell_bw, inputs,
         sequence_length=sequence_length, dtype=tf.float32, scope=scope)
       with tf.variable_scope("outputs"):
         outputs = tf.concat(outputs, -1)
-        outputs = linear(outputs, self.rnn_size)
+        outputs = linear(outputs, self.output_size)
         outputs = tf.nn.dropout(outputs, self.keep_prob)
 
       with tf.variable_scope("state"):
         state = merge_state(state)
-        state = linear(state, self.rnn_size)
+        state = linear(state, self.output_size)
       outputs = tf.reshape(outputs, output_shape)
       state = tf.reshape(state, state_shape)
       #print state

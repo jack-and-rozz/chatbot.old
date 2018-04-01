@@ -13,12 +13,29 @@ batch_size=128          # Batch size.
 
 # Structure.
 num_layers=1                       # The number of layers in MultiRNNCell.
-rnn_size=300                        # The dimension of RNN, and other layers.
+hidden_size=300                    # The dimension of RNN, and other layers.
 #rnn_type=bidirectional_dynamic_rnn # The name of rnn function in tensorflow.
-rnn_type=dynamic_rnn # The name of rnn function in tensorflow.
 cell_type=GRUCell                  # The name of RNNCell class in tensorflow.
-uttr_encoder_type=BidirectionalRNNEncoder   # [RNNEncoder|CNNEncoder]
-dial_encoder_type=RNNEncoder    # [RNNEncoder|CNNEncoder]
+attention_type=""
+encoder{
+  utterance = {
+    encoder_type=BidirectionalRNNEncoder
+    cell_type=${cell_type}
+    output_size=${hidden_size}
+    num_layers=${num_layers}
+  }
+  context = {
+    encoder_type=RNNEncoder
+    cell_type=${cell_type}
+    output_size=${hidden_size}
+    num_layers=${num_layers}
+  }
+}
+decoder{
+  cell_type=${cell_type}
+  output_size=${hidden_size}
+  num_layers=${num_layers}
+}
 model_type=Seq2Seq
 beam_width=5
 length_penalty_weight=0.6 # https://arxiv.org/pdf/1609.08144.pdf

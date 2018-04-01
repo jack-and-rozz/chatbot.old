@@ -220,7 +220,8 @@ class Manager(object):
 
     with open(test_output_path, 'w') as f:
       sys.stdout = f
-      for i, (context, response, prediction) in enumerate(zip(*res)):
+      for i, dialogue in enumerate(zip(*res)):
+        context, response, speaker_change, prediction = dialogue
         for j, c in enumerate(context):
           print '<%d-C%d>:\t%s' % (i, j, c)
         print '<%d-R>:\t%s' % (i, response)
