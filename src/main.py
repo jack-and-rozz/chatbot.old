@@ -9,8 +9,7 @@ from logging import FileHandler
 import tensorflow as tf
 
 from utils import common, evaluation, tf_utils
-from core import datasets, vocabularies
-from core.models import seq2seq
+from core import models, datasets, vocabularies
 
 
 tf_config = tf.ConfigProto(
@@ -187,9 +186,11 @@ class Manager(object):
         print 'response(token):',
         #print response
         print self.w_vocab.id2sent(response, join=True)
-        print 'speaker_changes', speaker_change
+        print 'speaker_changes', dataset.sc_vocab.id2sent(speaker_change)
+        #print dataset.sc_vocab.rev_vocab
         cnt += 1
       #exit(1)
+    self.w_vocab.embeddings.shape
     pass
 
   def demo(self, model=None, inp=None):
@@ -214,26 +215,15 @@ class Manager(object):
     if not in_training:
       sys.stderr.write('Start Decoding...\n')
     res, epoch_time = model.test(batches)
-    self.logger.info('(Epoch %d) Test score: - (%.3f sec)' % (epoch_time))
-
     test_filename = '%s.%02d' % (test_filename, model.epoch.eval()) if in_training else '%s.best' % (test_filename)
     test_output_path = os.path.join(self.tests_path, test_filename)
 
-    def switch_speaker(current_speaker):
-      current_speaker = 'A' if current_speaker == 'B' else 'B'
-      return current_speaker
-
     with open(test_output_path, 'w') as f:
       sys.stdout = f
-      for i, dialogue in enumerate(zip(*res)):
-        context, response, speaker_change, prediction = dialogue
-        current_speaker = 'A'
-        for j, (c, sc) in enumerate(zip(context, speaker_change)):
-          if sc:
-            current_speaker = switch_speaker(current_speaker)
-          print '<%d-C%d>: (Speaker%s) %s' % (i, j, current_speaker, c)
-        current_speaker = switch_speaker(current_speaker)
-        print '<%d-R> : (Speaker%s) %s' % (i, current_speaker, response)
+      for i, (context, response, prediction) in enumerate(zip(*res)):
+        for j, c in enumerate(context):
+          print '<%d-C%d>:\t%s' % (i, j, c)
+        print '<%d-R>:\t%s' % (i, response)
         for j, p in enumerate(prediction):
           print '<%d-P%d>:\t%s' % (i, j, p)
         print ''
@@ -246,9 +236,7 @@ class Manager(object):
   def create_model(self, sess, config,
                    checkpoint_path=None, cleanup=False):
     with tf.variable_scope('', reuse=tf.AUTO_REUSE):
-      sys.stderr.write("Initializing computation graphs...\n")
-      model_type = getattr(seq2seq, config.model_type)
-      m = model_type(sess, config, self.w_vocab, self.c_vocab)
+      m = getattr(models, config.model_type)(sess, config, self.w_vocab, self.c_vocab)
 
     if not checkpoint_path and not cleanup:
       ckpt = tf.train.get_checkpoint_state(self.checkpoint_path)

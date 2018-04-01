@@ -178,6 +178,12 @@ class recDotDict(dict):
       #        dict[k][i] = dotDict(x)
     super(recDotDict, self).__init__(_dict)
 
+class OrderedDefaultDict(collections.OrderedDict, collections.defaultdict):
+  def __init__(self, default_factory=None, *args, **kwargs):
+    #in python3 you can omit the args to super
+    super(OrderedDefaultDict, self).__init__(*args, **kwargs)
+    self.default_factory = default_factory
+
 
 def multi_process(func, *args):
   '''

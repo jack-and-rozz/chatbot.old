@@ -9,11 +9,11 @@ from utils.tf_utils import linear, shape, cnn, flatten
 
 def merge_state(state):
   if isinstance(state[0], LSTMStateTuple):
-    new_c = tf.concat([s.c for s in state], axis=1)
-    new_h = tf.concat([s.h for s in state], axis=1)
+    new_c = tf.concat([s.c for s in state], axis=-1)
+    new_h = tf.concat([s.h for s in state], axis=-1)
     state = LSTMStateTuple(c=new_c, h=new_h)
   else:
-    state = tf.concat(state, 1)
+    state = tf.concat(state, -1)
   return state
 
 class CNNEncoder(object):
@@ -60,17 +60,14 @@ class RNNEncoder(object):
     self.keep_prob = keep_prob
     self.activation = activation
     self.shared_scope = shared_scope
-    is_bidirectional = getattr(tf.nn, config.rnn_type) == tf.nn.bidirectional_dynamic_rnn
-
+    self.rnn_size = config.rnn_size
+    self.cell_type = config.cell_type
+    self.num_layers = config.num_layers
     with tf.variable_scope('fw_cell', reuse=tf.get_variable_scope().reuse):
-      self.cell_fw = setup_cell(config.cell_type, config.rnn_size, 
-                                num_layers=config.num_layers, 
+      self.cell_fw = setup_cell(self.cell_type, self.rnn_size, 
+                                num_layers=self.num_layers, 
                                 keep_prob=self.keep_prob)
-    with tf.variable_scope('bw_cell', reuse=tf.get_variable_scope().reuse):
-      self.cell_bw = setup_cell(
-        config.cell_type, config.rnn_size, 
-        num_layers=config.num_layers, keep_prob=self.keep_prob
-      ) if is_bidirectional else None
+
 
   def __call__(self, *args, **kwargs):
     return self.encode(*args, **kwargs)
@@ -82,25 +79,44 @@ class RNNEncoder(object):
       inputs, prev_shape = flatten(inputs, 3) # [*, max_sequence_length, hidden_size]
       output_shape = prev_shape[:-1] + [self.rnn_size]
       state_shape = prev_shape[:-2] + [self.rnn_size]
-      print 'os',output_shape
-      print 'ss', state_shape
-      if self.cell_bw is not None:
-        outputs, state = tf.nn.bidirectional_dynamic_rnn(
-          self.cell_fw, self.cell_bw, inputs,
-          sequence_length=sequence_length, dtype=tf.float32, scope=scope)
-        with tf.variable_scope("outputs"):
-          outputs = tf.concat(outputs, 2)
-          outputs = linear(outputs, self.rnn_size)
-          outputs = tf.nn.dropout(outputs, self.keep_prob)
-
-        with tf.variable_scope("state"):
-          state = merge_state(state)
-          print 'state', state
-          state = linear(state, self.rnn_size)
-      else:
-        outputs, state = tf.nn.dynamic_rnn(
-          self.cell_fw, inputs,
-          sequence_length=sequence_length, dtype=tf.float32, scope=scope)
+      outputs, state = tf.nn.dynamic_rnn(
+        self.cell_fw, inputs,
+        sequence_length=sequence_length, dtype=tf.float32, scope=scope)
       outputs = tf.reshape(outputs, output_shape)
       state = tf.reshape(state, state_shape)
+    return outputs, state
+
+
+class BidirectionalRNNEncoder(RNNEncoder):
+  def __init__(self, *args, **kwargs):
+    RNNEncoder.__init__(self, *args, **kwargs)
+    with tf.variable_scope('bw_cell', reuse=tf.get_variable_scope().reuse):
+      self.cell_bw = setup_cell(
+        self.cell_type, self.rnn_size, 
+        num_layers=self.num_layers, keep_prob=self.keep_prob
+      ) 
+
+
+  def encode(self, inputs, sequence_length):
+    with tf.variable_scope(self.shared_scope or "RNNEncoder") as scope:
+      # TODO: flatten the tensor with rank >= 4 to rank 3 tensor.
+      sequence_length, _ = flatten(sequence_length, 1)
+      inputs, prev_shape = flatten(inputs, 3) # [*, max_sequence_length, hidden_size]
+      output_shape = prev_shape[:-1] + [self.rnn_size]
+      state_shape = prev_shape[:-2] + [self.rnn_size]
+
+      outputs, state = tf.nn.bidirectional_dynamic_rnn(
+        self.cell_fw, self.cell_bw, inputs,
+        sequence_length=sequence_length, dtype=tf.float32, scope=scope)
+      with tf.variable_scope("outputs"):
+        outputs = tf.concat(outputs, -1)
+        outputs = linear(outputs, self.rnn_size)
+        outputs = tf.nn.dropout(outputs, self.keep_prob)
+
+      with tf.variable_scope("state"):
+        state = merge_state(state)
+        state = linear(state, self.rnn_size)
+      outputs = tf.reshape(outputs, output_shape)
+      state = tf.reshape(state, state_shape)
+      #print state
     return outputs, state

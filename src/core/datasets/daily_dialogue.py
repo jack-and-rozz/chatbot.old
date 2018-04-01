@@ -4,7 +4,7 @@ import numpy as np
 import sys, re, random, itertools, os
 import pandas as pd
 from collections import OrderedDict, Counter
-from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _UNK, UNK_ID,  WordVocabulary, CharVocabulary
+from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _UNK, UNK_ID,  WordVocabulary, CharVocabulary, BooleanVocab
 from utils import common
 from core.datasets.base import DatasetBase, PackedDatasetBase, _EOU, _EOT, _URL, _FILEPATH
 
@@ -68,7 +68,7 @@ class _DailyDialogDataset(DatasetBase):
         data.append(d)
     data = common.flatten(data)
     dialogues, acts, emotions, speaker_changes, topics = list(zip(*data))
-    contexts, responses, speaker_changes = zip(*[(d[:-1], d[-1], sc[:-1]) for d, sc in zip(dialogues, speaker_changes) if sc[-1] == 1])
+    contexts, responses, speaker_changes = zip(*[(d[:-1], d[-1], sc[:-1]) for d, sc in zip(dialogues, speaker_changes) if sc[-1] == True])
     return contexts, responses, speaker_changes
 
   @classmethod
@@ -78,7 +78,7 @@ class _DailyDialogDataset(DatasetBase):
                 for x in dialogue.split(_EOU) if x.strip()]
     act = [[int(a) for _ in xrange(len(d))] for a, d in zip(act.split(), dialogue)]
     emotion = [[int(e) for _ in xrange(len(d))] for e, d in zip(emotion.split(), dialogue)]
-    speaker_change = [[1 if i == 0 else 0 for i in xrange(len(d))] for d in dialogue]
+    speaker_change = [[True if i == 0 else False for i in xrange(len(d))] for d in dialogue] # Set 1 when a speaker start his/her turn, otherwise 0.
 
     dialogue = common.flatten(dialogue)
     act = common.flatten(act)
@@ -92,8 +92,12 @@ class _DailyDialogDataset(DatasetBase):
       if not dialogue_max_len or len(dialogue) < dialogue_max_len:
         return [(dialogue, act, emotion, speaker_change, topic)]
       else: # Slice the dialogue.
-        dlen = dialogue_max_len
-        return [(dialogue[i:i+dlen], act[i:i+dlen], emotion[i:i+dlen], speaker_change[i:i+dlen], topic) for i in xrange(len(dialogue)+1-dialogue_max_len)]
+        
+        res = common.flatten([[(dialogue[i:i+dlen], act[i:i+dlen], emotion[i:i+dlen], speaker_change[i:i+dlen], topic) for i in xrange(len(dialogue)+1-dlen)] for dlen in range(2, dialogue_max_len+1)])
+        # for r in res:
+        #   print r
+        # exit(1)
+        return res
     else:
       return None
   @classmethod
@@ -154,7 +158,8 @@ class _DailyDialogDataset(DatasetBase):
     if not self.wbase and not self.cbase:
       raise ValueError('Either \'wbase\' or \'cbase\' must be True.')
 
-    self.speaker_changes = speaker_changes
+    self.sc_vocab = BooleanVocab
+    self.speaker_changes = [self.sc_vocab.sent2id(sc) for sc in speaker_changes]
 
     # Separate contexts and responses into words (or chars), and convert them into their IDs.
     self.original = common.dotDict({})
@@ -180,6 +185,7 @@ class _DailyDialogDataset(DatasetBase):
       self.symbolized.c_contexts = [None for context in contexts]
     self.original.responses = [self.w_vocab.tokenizer(r) for r in responses]
     self.symbolized.responses = [self.w_vocab.sent2id(r) for r in responses]
+    
     self.load = True
 
   def get_batch(self, batch_size, word_max_len=0,

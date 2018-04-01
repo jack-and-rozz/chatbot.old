@@ -17,7 +17,7 @@ rnn_size=300                        # The dimension of RNN, and other layers.
 #rnn_type=bidirectional_dynamic_rnn # The name of rnn function in tensorflow.
 rnn_type=dynamic_rnn # The name of rnn function in tensorflow.
 cell_type=GRUCell                  # The name of RNNCell class in tensorflow.
-uttr_encoder_type=RNNEncoder   # [RNNEncoder|CNNEncoder]
+uttr_encoder_type=BidirectionalRNNEncoder   # [RNNEncoder|CNNEncoder]
 dial_encoder_type=RNNEncoder    # [RNNEncoder|CNNEncoder]
 model_type=Seq2Seq
 beam_width=5
@@ -30,11 +30,11 @@ dataset_path=dataset/dailydialog
 dataset_info { # The train/valid/test dataset.
   train = {
     path = ${dataset_path}/train.csv
-    max_lines = 0 # The maximum size of training data. if 0, all of the training data will be used.
+    max_lines = 100 # The maximum size of training data. if 0, all of the training data will be used.
   }
   valid = {
     path = ${dataset_path}/valid.csv
-    max_lines = 100
+    max_lines = 10
   }
   test = {
     path = ${dataset_path}/test.csv

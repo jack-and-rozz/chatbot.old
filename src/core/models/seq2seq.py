@@ -11,7 +11,7 @@ from core.models.base import ModelBase, setup_cell
 from core.models.encoder import CharEncoder, WordEncoder, RNNEncoder, CNNEncoder
 from core.models import encoder
 from core.extensions.pointer import pointer_decoder 
-from core.vocabularies import BOS_ID, PAD_ID
+from core.vocabularies import BOS_ID, PAD_ID, BooleanVocab
 
 # class SharedDenseLayer(tf.layers.Dense):
 #   def __init__(self, *args, **kwargs):
@@ -79,7 +79,7 @@ class Seq2Seq(ModelBase):
       batch_size = shape(self.e_inputs_w_ph, 0)
 
     with tf.variable_scope('Embeddings') as scope:
-      if w_vocab.embeddings:
+      if w_vocab.embeddings is not None:
         initializer = tf.constant_initializer(w_vocab.embeddings) 
         trainable = config.train_embedding
       else:
@@ -90,7 +90,7 @@ class Seq2Seq(ModelBase):
         initializer=initializer,
         trainable=trainable)
 
-      if c_vocab:
+      if c_vocab is not None:
         if c_vocab.embeddings:
           initializer = tf.constant_initializer(c_vocab.embeddings) 
           trainable = config.train_embedding
@@ -102,7 +102,7 @@ class Seq2Seq(ModelBase):
           initializer=initializer,
           trainable=trainable)
       sc_embeddings = self.initialize_embeddings(
-          'SpeakerChange', [2, config.feature_size],
+          'SpeakerChange', [BooleanVocab.size, config.feature_size],
           trainable=trainable)
       speaker_changes = tf.nn.embedding_lookup(sc_embeddings, self.speaker_changes_ph)
 
@@ -111,8 +111,10 @@ class Seq2Seq(ModelBase):
       word_repls = []
 
       # Count the length of each dialogue, utterance, (word).
-      uttr_lengths = tf.count_nonzero(self.e_inputs_w_ph, axis=2, dtype=tf.int32)
-      dial_lengths = tf.count_nonzero(uttr_lengths, axis=1, dtype=tf.int32)
+      with tf.name_scope('utterance_length'):
+        uttr_lengths = tf.count_nonzero(self.e_inputs_w_ph, axis=2, dtype=tf.int32)
+      with tf.name_scope('context_length'):
+        context_lengths = tf.count_nonzero(uttr_lengths, axis=1, dtype=tf.int32)
 
       with tf.variable_scope('Word') as scope:
         w_inputs = tf.nn.embedding_lookup(w_embeddings, self.e_inputs_w_ph)
@@ -149,7 +151,7 @@ class Seq2Seq(ModelBase):
         dial_encoder = dial_encoder_type(config, self.keep_prob, 
                                          shared_scope=scope)
         encoder_outputs, encoder_state = dial_encoder.encode(
-          uttr_repls, dial_lengths)
+          uttr_repls, context_lengths)
 
     ## Decoder
     with tf.variable_scope('Decoder') as scope:
@@ -187,8 +189,9 @@ class Seq2Seq(ModelBase):
       projection_layer = tf.layers.Dense(config.w_vocab_size,
                                          use_bias=True, trainable=True)
 
-      encoder_input_length = dial_lengths
+      encoder_input_length = context_lengths
       attention_states = encoder_outputs
+      decoder_state = encoder_state
       num_units = shape(attention_states, -1)
       with tf.name_scope('Training'):
         attention = tf.contrib.seq2seq.LuongAttention(
@@ -198,7 +201,7 @@ class Seq2Seq(ModelBase):
           decoder_cell, attention)
 
         # encoder_state can't be directly copied into decoder_cell when using the attention mechanisms, initial_state must be an instance of AttentionWrapperState. (https://github.com/tensorflow/nmt/issues/205)
-        decoder_initial_state = train_decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=encoder_state)
+        decoder_initial_state = train_decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=decoder_state)
         decoder = tf.contrib.seq2seq.BasicDecoder(
           train_decoder_cell, helper, decoder_initial_state,
           output_layer=projection_layer)
@@ -231,7 +234,6 @@ class Seq2Seq(ModelBase):
           decoder, impute_finished=False,
           maximum_iterations=config.utterance_max_len, scope=scope)
         self.predictions = test_decoder_outputs.predicted_ids
-          #FinalBeamDecoderOutput(predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose:0' shape=(?, ?, 3) dtype=int32>, beam_search_decoder_output=BeamSearchDecoderOutput(scores=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_1:0' shape=(?, ?, 3) dtype=float32>, predicted_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_2:0' shape=(?, ?, 3) dtype=int32>, parent_ids=<tf.Tensor 'Decoder/Decode/Test/Decode/transpose_3:0' shape=(?, ?, 3) dtype=int32>))
 
     with tf.name_scope('Loss'):
       self.loss = tf.contrib.seq2seq.sequence_loss(
