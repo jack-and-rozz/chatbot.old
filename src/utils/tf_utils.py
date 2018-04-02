@@ -57,7 +57,7 @@ def linear(inputs, output_size, add_bias=True,
     if add_bias:
       b = tf.get_variable('biases', [output_size])
     else:
-      b = tf.Constant(0, shape=[output_size], dtype=tf.float32)
+      b = tf.constant(0, shape=[output_size], dtype=tf.float32)
 
     if inputs_rank == 3:
       batch_size = shape(inputs, 0)

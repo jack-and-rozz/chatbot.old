@@ -304,6 +304,7 @@ class HierarchicalSeq2Seq(ModelBase):
     return logits, predictions
 
   def get_loss(self, config):
+    self.divergence = tf.constant(0)
     self.crossent = tf.contrib.seq2seq.sequence_loss(
       self.logits, self.targets, self.target_weights,
       average_across_timesteps=True, average_across_batch=True)
