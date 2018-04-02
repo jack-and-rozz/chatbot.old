@@ -430,7 +430,7 @@ class VariationalHierarchicalSeq2Seq(HierarchicalSeq2Seq):
         output_size)
 
     train_decoder_state = tf.concat([encoder_state, self.posterior.sample()], axis=-1)
-    test_decode_state = tf.concat([encoder_state, self.prior.sample()], axis=-1)
+    test_decoder_state = tf.concat([encoder_state, self.prior.sample()], axis=-1)
     #train_decoder_state = encoder_state + self.posterior.sample()
     #test_decoder_state = encoder_state + self.prior.sample()
     print train_decoder_state
