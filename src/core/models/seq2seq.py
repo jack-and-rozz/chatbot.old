@@ -320,6 +320,9 @@ class Seq2Seq(ModelBase):
       #    print x
       #    print resx.shape
       # exit(1)
+      print 'feed_dict'
+      print feed_dict
+      exit(1)
       t = time.time()
       batch_predictions = self.sess.run(self.predictions, feed_dict)
       epoch_time += time.time() - t
@@ -335,6 +338,7 @@ class Seq2Seq(ModelBase):
     inputs = [[self.w_vocab.id2sent(u, join=True) for u in c] for c in inputs]
     outputs = [self.w_vocab.id2sent(r, join=True) for r in outputs]
     # [batch_size, utterance_max_len, beam_width] - > [batch_size, beam_width, utterance_max_len]
-    predictions = [[self.w_vocab.id2sent(r, join=True) for r in zip(*p)] for p in predictions] 
+    predictions = [[self.w_vocab.id2sent(r, join=True) for r in zip(*p)] for p in predictions]
+    speaker_changes = [BooleanVocab.id2sent(sc) for sc in speaker_changes]
     return (inputs, outputs, speaker_changes, predictions), epoch_time
 

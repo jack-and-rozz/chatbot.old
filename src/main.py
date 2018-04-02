@@ -164,10 +164,9 @@ class Manager(object):
   def debug(self):
     self.stat()
     config = self.config
-    dataset = self.dataset.valid
+    dataset = self.dataset.test
     batches = dataset.get_batch(
-      config.batch_size, utterance_max_len=config.utterance_max_len,
-      shuffle=False)
+      config.batch_size, utterance_max_len=25, shuffle=False)
     dataset.load_data()
     cnt = 0 
     for b in batches:
@@ -212,19 +211,27 @@ class Manager(object):
         checkpoint_path=self.checkpoint_path + '/model.ckpt.best')
     batches = dataset.get_batch(
       config.batch_size, utterance_max_len=0, shuffle=False)
+
     if not in_training:
       sys.stderr.write('Start Decoding...\n')
     res, epoch_time = model.test(batches)
     test_filename = '%s.%02d' % (test_filename, model.epoch.eval()) if in_training else '%s.best' % (test_filename)
     test_output_path = os.path.join(self.tests_path, test_filename)
 
+    def switch_speaker(prev_speaker):
+      return 0 if prev_speaker else 1
     with open(test_output_path, 'w') as f:
       sys.stdout = f
       for i, dialogue in enumerate(zip(*res)):
         context, response, speaker_change, prediction = dialogue
-        for j, c in enumerate(context):
-          print '<%d-C%d>:\t%s' % (i, j, c)
-        print '<%d-R>:\t%s' % (i, response)
+        speaker = 0
+        for j, (utterance, sc) in enumerate(zip(context, speaker_change)):
+          if sc:
+            speaker = switch_speaker(speaker)
+          print '<%d-C%d>:(speaker%d)\t%s' % (i, j, speaker, utterance)
+
+        speaker = switch_speaker(speaker)
+        print '<%d-R> :(speaker%d)\t%s' % (i, speaker, response)
         for j, p in enumerate(prediction):
           print '<%d-P%d>:\t%s' % (i, j, p)
         print ''

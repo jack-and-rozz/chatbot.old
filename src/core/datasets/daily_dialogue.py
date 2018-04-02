@@ -8,6 +8,7 @@ from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _UNK, UNK_ID,  WordVoc
 from utils import common
 from core.datasets.base import DatasetBase, PackedDatasetBase, _EOU, _EOT, _URL, _FILEPATH
 
+# TODO: the sequences encoded by CNN must be longer than the filter size.
 max_cnn_width=5
 
 def w_dialogue_padding(w_contexts, context_max_len, utterance_max_len):
@@ -16,6 +17,8 @@ def w_dialogue_padding(w_contexts, context_max_len, utterance_max_len):
   context_max_len = context_max_len if context_max_len else _context_max_len
   
   _utterance_max_len = max([max([len(u) for u in d]) for d in w_contexts]) 
+  print utterance_max_len
+  print _utterance_max_len
   if not utterance_max_len or _utterance_max_len < utterance_max_len:
     utterance_max_len = _utterance_max_len
 
@@ -217,8 +220,6 @@ class _DailyDialogDataset(DatasetBase):
       _utterance_max_len = max([len(u) for u in responses]) 
       if not utterance_max_len or _utterance_max_len < utterance_max_len:
         utterance_max_len = _utterance_max_len
-      # TODO: the sequences encoded by CNN must be longer than the filter size.
-      utterance_max_len = max(max_cnn_width, utterance_max_len)
 
       responses = tf.keras.preprocessing.sequence.pad_sequences(
         responses, maxlen=utterance_max_len, 
