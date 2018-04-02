@@ -166,7 +166,7 @@ class Manager(object):
     config = self.config
     dataset = self.dataset.test
     batches = dataset.get_batch(
-      config.batch_size, utterance_max_len=25, shuffle=False)
+      config.batch_size, utterance_max_len=0, shuffle=False)
     dataset.load_data()
     cnt = 0 
     for b in batches:
@@ -233,6 +233,7 @@ class Manager(object):
         speaker = switch_speaker(speaker)
         print '<%d-R> :(speaker%d)\t%s' % (i, speaker, response)
         for j, p in enumerate(prediction):
+          p = p.encode('utf-8')
           print '<%d-P%d>:\t%s' % (i, j, p)
         print ''
       sys.stdout = sys.__stdout__

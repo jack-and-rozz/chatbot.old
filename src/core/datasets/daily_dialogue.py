@@ -17,8 +17,6 @@ def w_dialogue_padding(w_contexts, context_max_len, utterance_max_len):
   context_max_len = context_max_len if context_max_len else _context_max_len
   
   _utterance_max_len = max([max([len(u) for u in d]) for d in w_contexts]) 
-  print utterance_max_len
-  print _utterance_max_len
   if not utterance_max_len or _utterance_max_len < utterance_max_len:
     utterance_max_len = _utterance_max_len
 

@@ -40,7 +40,7 @@ def get_available_gpus():
 def make_summary(value_dict):
   return tf.Summary(value=[tf.Summary.Value(tag=k, simple_value=v) for k,v in value_dict.items()])
 
-def linear(inputs, output_size,
+def linear(inputs, output_size, add_bias=True,
            activation=tf.nn.relu, scope=None):
   """
   Args:
@@ -48,18 +48,23 @@ def linear(inputs, output_size,
                  the sequence_size must be known.
     output_size : An integer.
   """
+  if activation is None:
+    activation = lambda x: x
   with tf.variable_scope(scope or "linear"):
     inputs_rank = len(inputs.get_shape().as_list())
     hidden_size = shape(inputs, -1)
     w = tf.get_variable('weights', [hidden_size, output_size])
-    b = tf.get_variable('biases', [output_size])
+    if add_bias:
+      b = tf.get_variable('biases', [output_size])
+    else:
+      b = tf.Constant(0, shape=[output_size], dtype=tf.float32)
+
     if inputs_rank == 3:
       batch_size = shape(inputs, 0)
       max_sentence_length = shape(inputs, 1)
       inputs = tf.reshape(inputs, [batch_size * max_sentence_length, hidden_size])
       outputs = activation(tf.nn.xw_plus_b(inputs, w, b))
       outputs = tf.reshape(outputs, [batch_size, max_sentence_length, output_size])
-      #outputs = tf.stack([activation(tf.nn.xw_plus_b(t, w, b)) for t in tf.unstack(inputs, axis=1)], axis=1)
     elif inputs_rank == 2:
       outputs = activation(tf.nn.xw_plus_b(inputs, w, b))
     else:

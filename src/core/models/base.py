@@ -21,33 +21,32 @@ class ModelBase(object):
   def __init__(self, sess, config):
     self.sess = sess
     self.max_gradient_norm = config.max_gradient_norm
+    with tf.variable_scope('GlobalVariables'):
+      self.global_step = tf.get_variable(
+        "global_step", trainable=False, shape=[],  dtype=tf.int32,
+        initializer=tf.constant_initializer(0, dtype=tf.int32)) 
 
-    self.global_step = tf.get_variable(
-      "global_step", trainable=False, shape=[],  dtype=tf.int32,
-      initializer=tf.constant_initializer(0, dtype=tf.int32)) 
+      self.epoch = tf.get_variable(
+        "epoch", trainable=False, shape=[], dtype=tf.int32,
+        initializer=tf.constant_initializer(0, dtype=tf.int32)) 
 
-    self.epoch = tf.get_variable(
-      "epoch", trainable=False, shape=[], dtype=tf.int32,
-      initializer=tf.constant_initializer(0, dtype=tf.int32)) 
+      self.high_score = tf.get_variable(
+        "high_score", trainable=False, shape=[], dtype=tf.float32,
+        initializer=tf.constant_initializer(0, dtype=tf.int32)) 
 
-    self.high_score = tf.get_variable(
-      "high_score", trainable=False, shape=[], dtype=tf.float32,
-      initializer=tf.constant_initializer(0, dtype=tf.int32)) 
-
-    self.learning_rate = tf.train.exponential_decay(
-      config.learning_rate, self.global_step,
-      config.decay_frequency, config.decay_rate, staircase=True)
+      self.learning_rate = tf.train.exponential_decay(
+        config.learning_rate, self.global_step,
+        config.decay_frequency, config.decay_rate, staircase=True)
 
   def get_updates(self, loss):
-    with tf.name_scope("update"):
-      params = tf.contrib.framework.get_trainable_variables()
-      opt = tf.train.AdamOptimizer(self.learning_rate)
-      gradients = [grad for grad, _ in opt.compute_gradients(loss)]
-      clipped_gradients, _ = tf.clip_by_global_norm(gradients, 
+    params = tf.contrib.framework.get_trainable_variables()
+    opt = tf.train.AdamOptimizer(self.learning_rate)
+    gradients = [grad for grad, _ in opt.compute_gradients(loss)]
+    clipped_gradients, _ = tf.clip_by_global_norm(gradients, 
                                                     self.max_gradient_norm)
-      grad_and_vars = [(g, v) for g, v in zip(clipped_gradients, params)]
-      updates = opt.apply_gradients(
-        grad_and_vars, global_step=self.global_step)
+    grad_and_vars = [(g, v) for g, v in zip(clipped_gradients, params)]
+    updates = opt.apply_gradients(
+      grad_and_vars, global_step=self.global_step)
     return updates
 
   def add_epoch(self):
