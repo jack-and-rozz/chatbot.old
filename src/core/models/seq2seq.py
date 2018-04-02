@@ -237,9 +237,8 @@ class HierarchicalSeq2Seq(ModelBase):
     batch_size = self.batch_size
     decoder_inputs_emb = tf.nn.embedding_lookup(self.w_embeddings, self.decoder_inputs)
     # TODO: 多言語対応にする時はbias, trainableをfalseにしてembeddingをconstantにしたい
-
     decoder_cell = setup_cell(config.decoder.cell_type, 
-                              config.decoder.output_size, 
+                              shape(train_decoder_state, -1), 
                               config.decoder.num_layers,
                               keep_prob=self.keep_prob)
     if projection_layer is None:
@@ -430,10 +429,10 @@ class VariationalHierarchicalSeq2Seq(HierarchicalSeq2Seq):
         tf.concat([encoder_state, h_future], axis=-1),
         output_size)
 
-    #train_decoder_state = tf.concat([encoder_state, self.posterior.sample()], axis=-1)
-    #test_decode_state = tf.concat([encoder_state, self.prior.sample()], axis=-1)
-    train_decoder_state = encoder_state + self.posterior.sample()
-    test_decoder_state = encoder_state + self.prior.sample()
+    train_decoder_state = tf.concat([encoder_state, self.posterior.sample()], axis=-1)
+    test_decode_state = tf.concat([encoder_state, self.prior.sample()], axis=-1)
+    #train_decoder_state = encoder_state + self.posterior.sample()
+    #test_decoder_state = encoder_state + self.prior.sample()
     print train_decoder_state
     print test_decoder_state
     return train_decoder_state, test_decoder_state, attention_states
