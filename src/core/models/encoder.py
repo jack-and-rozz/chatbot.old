@@ -117,5 +117,4 @@ class BidirectionalRNNEncoder(RNNEncoder):
         state = linear(state, self.output_size)
       outputs = tf.reshape(outputs, output_shape)
       state = tf.reshape(state, state_shape)
-      #print state
     return outputs, state

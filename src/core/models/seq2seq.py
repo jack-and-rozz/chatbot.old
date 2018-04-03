@@ -6,7 +6,7 @@ from pprint import pprint
 
 import tensorflow as tf
 import tensorflow.contrib.distributions as tfd
-from utils.tf_utils import shape, linear
+from utils.tf_utils import shape, linear, make_summary
 from utils.common import flatten, timewatch
 from core.models.base import ModelBase, setup_cell
 from core.models.encoder import CharEncoder, WordEncoder, RNNEncoder, CNNEncoder
@@ -336,6 +336,7 @@ class HierarchicalSeq2Seq(ModelBase):
     This method can be used for the calculation of valid loss with do_update=False
     '''
     loss = 0.0
+    divergence = 0.0
     num_steps = 0
     epoch_time = 0.0
     for i, batch in enumerate(data):
@@ -345,9 +346,12 @@ class HierarchicalSeq2Seq(ModelBase):
       #   print resx, resx.shape
       # exit(1)
       t = time.time()
-      output_feed = [self.crossent, self.divergence, self.updates] if do_update else [self.loss]
+      output_feed = [self.crossent, self.divergence] 
+      if do_update:
+        output_feed.append(self.updates)
       res = self.sess.run(output_feed, feed_dict)
       step_loss = math.exp(res[0])
+      divergence += res[1]
       print self.epoch.eval(), i, step_loss
       print 'res', res
       sys.stdout.flush()
@@ -361,7 +365,13 @@ class HierarchicalSeq2Seq(ModelBase):
       loss += step_loss
       num_steps += 1
     loss /= num_steps
-    return loss, epoch_time
+    divergence /= num_steps
+    mode = 'train' if do_update else 'valid'
+    summary = make_summary({
+      "%s/cross_entropy" % mode : loss,
+      "%s/divergence" % mode : divergence,
+    })
+    return loss, summary, epoch_time
 
   @timewatch()
   def test(self, data):

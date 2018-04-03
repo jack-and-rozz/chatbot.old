@@ -114,20 +114,21 @@ class Manager(object):
       train_batches = self.dataset.train.get_batch(
         self.config.batch_size, 
         utterance_max_len=self.config.utterance_max_len, shuffle=True)
-      train_loss, epoch_time = model.train(train_batches, do_update=True)
+      train_loss, train_summary, epoch_time = model.train(train_batches, do_update=True)
       self.logger.info('(Epoch %d) Train loss: %.3f (%.1f sec)' % (epoch, train_loss, epoch_time))
 
       valid_batches = self.dataset.valid.get_batch(
         self.config.batch_size, 
         utterance_max_len=self.config.utterance_max_len, shuffle=False)
-      valid_loss, epoch_time = model.train(valid_batches, do_update=False)
+      valid_loss, valid_summary, epoch_time = model.train(valid_batches, do_update=False)
       self.logger.info('(Epoch %d) Valid loss: %.3f (%.1f sec)' % (epoch, valid_loss, epoch_time))
 
-      summary = tf_utils.make_summary({
-        'train/loss': train_loss,
-        'valid/loss': valid_loss,
-      })
-      self.summary_writer.add_summary(summary, model.epoch.eval())
+      # summary = tf_utils.make_summary({
+      #   'train/loss': train_loss,
+      #   'valid/loss': valid_loss,
+      # })
+      self.summary_writer.add_summary(train_summary, model.epoch.eval())
+      self.summary_writer.add_summary(valid_summary, model.epoch.eval())
 
       score = -valid_loss
       self.test(model=model, dataset=self.dataset.valid, in_training=True)
@@ -289,10 +290,9 @@ def main(args):
       raise ValueError('args.mode must be \'train\', \'test\', or \'demo\'.')
 
   if args.mode == 'train':
-    vocab = manager.vocab
     with tf.Graph().as_default(), tf.Session(config=tf_config).as_default() as sess:
       tf.set_random_seed(0)
-      manager = Manager(args, sess, vocab=vocab)
+      manager = Manager(args, sess)
       manager.test()
   return manager
 

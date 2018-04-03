@@ -6,59 +6,14 @@ import pandas as pd
 from collections import OrderedDict, Counter
 from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _UNK, UNK_ID,  WordVocabulary, CharVocabulary, BooleanVocab
 from utils import common
-from core.datasets.base import DatasetBase, PackedDatasetBase, _EOU, _EOT, _URL, _FILEPATH
+from core.datasets.base import DatasetBase, PackedDatasetBase, _EOU, _EOT, _URL, _FILEPATH, w_dialogue_padding, c_dialogue_padding
 
 # TODO: the sequences encoded by CNN must be longer than the filter size.
-max_cnn_width=5
-
-def w_dialogue_padding(w_contexts, context_max_len, utterance_max_len):
-  # Get maximum length of contexts and utterances.
-  _context_max_len = max([len(d) for d in w_contexts])
-  context_max_len = context_max_len if context_max_len else _context_max_len
-  
-  _utterance_max_len = max([max([len(u) for u in d]) for d in w_contexts]) 
-  if not utterance_max_len or _utterance_max_len < utterance_max_len:
-    utterance_max_len = _utterance_max_len
-
-  # TODO: the sequences encoded by CNN must be longer than the filter size.
-  utterance_max_len = max(max_cnn_width, utterance_max_len)
-
-  # Fill empty utterances.
-  w_contexts = [[d[i] if i < len(d) else [] for i in xrange(context_max_len)] for d in w_contexts]
-  w_contexts = [tf.keras.preprocessing.sequence.pad_sequences(
-    d, maxlen=utterance_max_len, 
-    padding='post', truncating='post', value=PAD_ID) for d in w_contexts]
-  return w_contexts
-  
-def c_dialogue_padding(c_contexts, context_max_len, utterance_max_len, 
-                       word_max_len):
-  # Get maximum length of contexts, utterances, and words.
-  _context_max_len = max([len(d) for d in c_contexts])
-  context_max_len = context_max_len if context_max_len else _context_max_len
-
-  _utterance_max_len = max([max([len(u) for u in d]) for d in c_contexts]) 
-  if not utterance_max_len or _utterance_max_len < utterance_max_len:
-    utterance_max_len = _utterance_max_len
-  _word_max_len = max([max([max([len(w) for w in u]) for u in d]) for d in c_contexts])
-  # TODO: the sequences encoded by CNN must be longer than the filter size.
-  utterance_max_len = max(max_cnn_width, utterance_max_len)
-  word_max_len = max(max_cnn_width, word_max_len)
-
-  if not word_max_len or _word_max_len < word_max_len:
-    word_max_len = _word_max_len
-
-  # Fill empty utterances.
-  c_contexts = [[d[i] if i < len(d) else [] for i in xrange(context_max_len)] for d in c_contexts]
-  c_contexts = [[[u[i] if i < len(u) else [] for i in xrange(utterance_max_len)] for u in d] for d in c_contexts]
-
-  c_contexts = [[tf.keras.preprocessing.sequence.pad_sequences(
-    u, maxlen=word_max_len, padding='post', truncating='post',
-    value=PAD_ID) for u in d] for d in c_contexts]
-  return c_contexts
 
 class _DailyDialogDataset(DatasetBase):
   def __init__(self, info, w_vocab, c_vocab, context_max_len=0):
     self.context_max_len = context_max_len
+    self.sc_vocab = BooleanVocab
     DatasetBase.__init__(self, info, w_vocab, c_vocab)
 
   def preprocess(self, df):
@@ -93,11 +48,7 @@ class _DailyDialogDataset(DatasetBase):
       if not dialogue_max_len or len(dialogue) < dialogue_max_len:
         return [(dialogue, act, emotion, speaker_change, topic)]
       else: # Slice the dialogue.
-        
         res = common.flatten([[(dialogue[i:i+dlen], act[i:i+dlen], emotion[i:i+dlen], speaker_change[i:i+dlen], topic) for i in xrange(len(dialogue)+1-dlen)] for dlen in range(2, dialogue_max_len+1)])
-        # for r in res:
-        #   print r
-        # exit(1)
         return res
     else:
       return None
@@ -150,6 +101,7 @@ class _DailyDialogDataset(DatasetBase):
     return context_unk_rate, response_unk_rate
 
   def load_data(self):
+    self.load = True
     sys.stderr.write('Loading dataset from %s ...\n' % (self.path))
     df = pd.read_csv(self.path, nrows=self.max_lines)
 
@@ -159,7 +111,6 @@ class _DailyDialogDataset(DatasetBase):
     if not self.wbase and not self.cbase:
       raise ValueError('Either \'wbase\' or \'cbase\' must be True.')
 
-    self.sc_vocab = BooleanVocab
     self.speaker_changes = [self.sc_vocab.sent2id(sc) for sc in speaker_changes]
 
     # Separate contexts and responses into words (or chars), and convert them into their IDs.
@@ -186,8 +137,6 @@ class _DailyDialogDataset(DatasetBase):
       self.symbolized.c_contexts = [None for context in contexts]
     self.original.responses = [self.w_vocab.tokenizer(r) for r in responses]
     self.symbolized.responses = [self.w_vocab.sent2id(r) for r in responses]
-    
-    self.load = True
 
   def get_batch(self, batch_size, word_max_len=0,
                 utterance_max_len=0, shuffle=False):
@@ -197,7 +146,7 @@ class _DailyDialogDataset(DatasetBase):
     
     responses = self.symbolized.responses
     w_contexts = self.symbolized.w_contexts 
-    c_contexts = self.symbolized.c_contexts if self.cbase else [None for _ in xrange(len(responses))]
+    c_contexts = self.symbolized.c_contexts if self.cbase else [None for _ in xrange(len(w_contexts))]
     speaker_changes = self.speaker_changes
     data = [tuple(x) for x in zip(w_contexts, c_contexts, responses, speaker_changes, self.original.w_contexts, self.original.responses)]
     if shuffle: # For training.

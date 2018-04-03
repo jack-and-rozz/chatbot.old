@@ -2,8 +2,8 @@
 
 # Training hyperparameters.
 max_to_keep = 1         # The number of checkpoints kept.
-max_epoch = 30          # The number of epochs in training.
-learning_rate = 0.0001    # Learning rate.
+max_epoch = 50          # The number of epochs in training.
+learning_rate = 0.001    # Learning rate.
 max_gradient_norm = 5.0 # 
 decay_rate = 0.99       #
 decay_frequency = 100   #
@@ -47,11 +47,11 @@ dataset_path=dataset/dailydialog
 dataset_info { # The train/valid/test dataset.
   train = {
     path = ${dataset_path}/train.csv
-    max_lines = 0 # The maximum size of training data. if 0, all of the training data will be used.
+    max_lines = 1 # The maximum size of training data. if 0, all of the training data will be used.
   }
   valid = {
     path = ${dataset_path}/valid.csv
-    max_lines = 50
+    max_lines = 1
   }
   test = {
     path = ${dataset_path}/test.csv

@@ -5,7 +5,59 @@ import pandas as pd
 from collections import OrderedDict, Counter
 from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _NUM,  WordVocabulary, CharVocabulary
 from utils import evaluation, tf_utils, common
-#import core.datasets.base as self_module
+
+max_cnn_width=5 # TODO 
+_EOU = '__eou__'
+_EOT = '__eot__'
+_URL = '__URL__'
+_FILEPATH = '__FILEPATH__'
+
+def w_dialogue_padding(w_contexts, context_max_len, utterance_max_len):
+  # Get maximum length of contexts and utterances.
+  _context_max_len = max([len(d) for d in w_contexts])
+  context_max_len = context_max_len if context_max_len else _context_max_len
+  
+  _utterance_max_len = max([max([len(u) for u in d]) for d in w_contexts]) 
+  if not utterance_max_len or _utterance_max_len < utterance_max_len:
+    utterance_max_len = _utterance_max_len
+
+  # TODO: the sequences encoded by CNN must be longer than the filter size.
+  utterance_max_len = max(max_cnn_width, utterance_max_len)
+
+  # Fill empty utterances.
+  w_contexts = [[d[i] if i < len(d) else [] for i in xrange(context_max_len)] for d in w_contexts]
+  w_contexts = [tf.keras.preprocessing.sequence.pad_sequences(
+    d, maxlen=utterance_max_len, 
+    padding='post', truncating='post', value=PAD_ID) for d in w_contexts]
+  return w_contexts
+  
+def c_dialogue_padding(c_contexts, context_max_len, utterance_max_len, 
+                       word_max_len):
+  # Get maximum length of contexts, utterances, and words.
+  _context_max_len = max([len(d) for d in c_contexts])
+  context_max_len = context_max_len if context_max_len else _context_max_len
+
+  _utterance_max_len = max([max([len(u) for u in d]) for d in c_contexts]) 
+  if not utterance_max_len or _utterance_max_len < utterance_max_len:
+    utterance_max_len = _utterance_max_len
+  _word_max_len = max([max([max([len(w) for w in u]) for u in d]) for d in c_contexts])
+  # TODO: the sequences encoded by CNN must be longer than the filter size.
+  utterance_max_len = max(max_cnn_width, utterance_max_len)
+  word_max_len = max(max_cnn_width, word_max_len)
+
+  if not word_max_len or _word_max_len < word_max_len:
+    word_max_len = _word_max_len
+
+  # Fill empty utterances.
+  c_contexts = [[d[i] if i < len(d) else [] for i in xrange(context_max_len)] for d in c_contexts]
+  c_contexts = [[[u[i] if i < len(u) else [] for i in xrange(utterance_max_len)] for u in d] for d in c_contexts]
+
+  c_contexts = [[tf.keras.preprocessing.sequence.pad_sequences(
+    u, maxlen=word_max_len, padding='post', truncating='post',
+    value=PAD_ID) for u in d] for d in c_contexts]
+  return c_contexts
+
+
 
 class DatasetBase(object):
   def __init__(self, info, w_vocab, c_vocab):
@@ -18,10 +70,6 @@ class DatasetBase(object):
     self.cbase = c_vocab is not None
     self.load = False
 
-_EOU = '__eou__'
-_EOT = '__eot__'
-_URL = '__URL__'
-_FILEPATH = '__FILEPATH__'
 
 ###################################################
 #    Classes for dataset pair (train, valid, test)
