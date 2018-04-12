@@ -243,7 +243,7 @@ class HierarchicalSeq2Seq(ModelBase):
                               keep_prob=self.keep_prob)
     if projection_layer is None:
       with tf.variable_scope('projection') as scope:
-        projection_layer = tf.layers.Dense(config.w_vocab_size, use_bias=True, trainable=True)
+        projection_layer = tf.layers.Dense(self.w_vocab.size, use_bias=True, trainable=True)
 
     with tf.name_scope('Training'):
       if config.attention_type:

@@ -7,7 +7,6 @@ from core.vocabularies import _BOS, BOS_ID, _PAD, PAD_ID, _NUM,  WordVocabulary,
 from utils import common
 from core.datasets.base import DatasetBase, PackedDatasetBase, _EOU, _EOT, _URL, _FILEPATH, w_dialogue_padding, c_dialogue_padding
 
-# Todo: dialogueを扱う？1対話から1系列のみ取得？それとも刻む？
 class _UbuntuDialogueDataset(DatasetBase):
   def __init__(self, info, w_vocab, c_vocab, context_max_len=0):
     self.context_max_len = context_max_len
