@@ -164,12 +164,15 @@ class _DailyDialogDataset(DatasetBase):
         c_contexts = c_dialogue_padding(c_contexts, self.context_max_len,
                                         utterance_max_len, word_max_len)
 
-      _utterance_max_len = max([len(u) for u in responses]) 
-      if not utterance_max_len or _utterance_max_len < utterance_max_len:
-        utterance_max_len = _utterance_max_len
+      # The default utterance_max_len is not given or longer than the maximum length of data (_utterance_max_len_data), use it instead.
+      _utterance_max_len_data = max([len(u) for u in responses]) 
+      if not utterance_max_len or _utterance_max_len_data < utterance_max_len:
+        _utterance_max_len = _utterance_max_len_data
+      else:
+        _utterance_max_len = utterance_max_len
 
       responses = tf.keras.preprocessing.sequence.pad_sequences(
-        responses, maxlen=utterance_max_len, 
+        responses, maxlen=_utterance_max_len, 
         padding='post', truncating='post', value=PAD_ID)
       speaker_changes = tf.keras.preprocessing.sequence.pad_sequences(
         speaker_changes, maxlen=self.context_max_len,
